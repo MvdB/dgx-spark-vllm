@@ -34,6 +34,18 @@ UNSUPPORTED_ARCHS = {
 # ── Empirisch validierte Profile (aus Crash-Analyse und Logs) ─────────────
 # Überschreiben die automatisch berechneten Werte vollständig.
 KNOWN_GOOD = {
+    # NVFP4 erfordert cutlass FP4 GEMM – auf GB10 (sm_120) nicht unterstützt in vLLM 0.17.1.
+    # flashinfer hat keinen kompilierten FP4-Tactic für sm_120.
+    # Workaround: BF16-Gewichte nötig (~240 GB) oder neuere vLLM-Version mit sm_120-Support.
+    "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
+        "PROFILE_VLLM_COMPATIBLE": 0,
+        "PROFILE_NOTES": (
+            "INKOMPATIBEL mit vLLM 0.17.1 auf DGX Spark (GB10, sm_120): "
+            "cutlass FP4 GEMM hat keinen kompilierten Tactic für sm_120. "
+            "Fehler: flashinfer_mm_fp4 → [FP4 gemm Runner] Failed on sm120. "
+            "Fix: BF16-Gewichte verwenden (~240 GB) oder vLLM-Version mit sm_120 FP4-Kernel abwarten."
+        ),
+    },
     "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4": {
         "PROFILE_VLLM_COMPATIBLE":          1,
         "PROFILE_DTYPE":                    "float16",
