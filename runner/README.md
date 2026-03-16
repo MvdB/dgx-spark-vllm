@@ -22,7 +22,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 
 **Hardware:** DGX Spark · GB10 · 128 GB unified memory  
 **vLLM image:** `vllm/vllm-openai:v0.17.1`  
-**Last run:** 2026-03-16 22:43 UTC (9/15 models tested)
+**Last run:** 2026-03-16 22:49 UTC (10/15 models tested)
 
 | Model | Status | Startup | Warmup | TTFT | Throughput | Out tokens | Bench total |
 |---|:---:|---:|---:|---:|---:|---:|---:|
@@ -35,6 +35,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 | `Qwen--Qwen3.5-9B` | ✅ | 170s | 48.0s | 7.61s | 12.9&nbsp;tok/s | 150 | 19.2s |
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | ✅ | 420s | 18.6s | 0.06s | 113.1&nbsp;tok/s | 150 | 1.4s |
 | `mistralai--Ministral-3-14B-Instruct-2512` | ✅ | 340s | 18.8s | 0.03s | 112.3&nbsp;tok/s | 150 | 1.4s |
+| `mistralai--Ministral-3-14B-Reasoning-2512` | ✅ | 280s | 17.5s | 0.26s | 8.9&nbsp;tok/s | 150 | 17.1s |
 
 ## Correctness
 
@@ -49,6 +50,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 | `Qwen--Qwen3.5-9B` | `Thinking Process:  1.  **Analyze t…`&nbsp;10.1s | `Thinking Process:  1.  **Analyze t…`&nbsp;1.2s | `Thinking Process:  1.  **Analyze t…`&nbsp;1.2s |
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | ``&nbsp;0.2s | ``&nbsp;0.2s | ``&nbsp;0.1s |
 | `mistralai--Ministral-3-14B-Instruct-2512` | ``&nbsp;0.1s | ``&nbsp;0.1s | ``&nbsp;0.1s |
+| `mistralai--Ministral-3-14B-Reasoning-2512` | `Go.`&nbsp;0.4s | `56`&nbsp;0.5s | `Tokyo.`&nbsp;0.5s |
 
 ---
 
