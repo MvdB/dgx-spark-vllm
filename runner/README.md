@@ -22,7 +22,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 
 **Hardware:** DGX Spark · GB10 · 128 GB unified memory  
 **vLLM image:** `vllm/vllm-openai:v0.17.1`  
-**Last run:** 2026-03-16 22:56 UTC (12/15 models tested)
+**Last run:** 2026-03-16 23:00 UTC (13/15 models tested)
 
 | Model | Status | Startup | Warmup | TTFT | Throughput | Out tokens | Bench total |
 |---|:---:|---:|---:|---:|---:|---:|---:|
@@ -38,6 +38,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 | `mistralai--Ministral-3-14B-Reasoning-2512` | ✅ | 280s | 17.5s | 0.26s | 8.9&nbsp;tok/s | 150 | 17.1s |
 | `mistralai--Ministral-3-3B-Instruct-2512` | ✅ | 200s | 18.4s | 0.05s | 181.6&nbsp;tok/s | 150 | 0.9s |
 | `mistralai--Ministral-3-3B-Reasoning-2512` | ✅ | 130s | 17.3s | 0.09s | 26.2&nbsp;tok/s | 150 | 5.8s |
+| `mistralai--Ministral-3-8B-Instruct-2512` | ✅ | 260s | 18.2s | 0.06s | 142.2&nbsp;tok/s | 150 | 1.1s |
 
 ## Correctness
 
@@ -55,6 +56,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 | `mistralai--Ministral-3-14B-Reasoning-2512` | `Go.`&nbsp;0.4s | `56`&nbsp;0.5s | `Tokyo.`&nbsp;0.5s |
 | `mistralai--Ministral-3-3B-Instruct-2512` | ``&nbsp;0.1s | ``&nbsp;0.1s | ``&nbsp;0.1s |
 | `mistralai--Ministral-3-3B-Reasoning-2512` | `Yes`&nbsp;0.1s | `56`&nbsp;0.2s | `Tokyo`&nbsp;0.1s |
+| `mistralai--Ministral-3-8B-Instruct-2512` | `kie`&nbsp;0.1s | ``&nbsp;0.1s | ``&nbsp;0.1s |
 
 ---
 
