@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Smoke-test runner for all compatible vLLM models on DGX Spark.
+Smoke-test + benchmark runner for all compatible vLLM models on DGX Spark.
 
-For each model:
-  1. Starts vllm_spark.sh (docker container)
-  2. Waits until the API is ready
-  3. Sends a few test queries
-  4. Stops the container
-  5. Writes results to runner/model_status.md and pushes to git
+Per model:
+  1. Start vllm_spark.sh
+  2. Wait until API is ready  → startup_s
+  3. Warmup query             → warmup_s  (first request triggers CUDA JIT)
+  4. Correctness queries      → sanity / math / short-text
+  5. Streaming benchmark      → TTFT, throughput (tok/s), total bench time
+  6. Stop container
+  7. Write runner/model_status.md and push to git
 
 Usage:
   python3 test_models.py              # test all compatible models
-  python3 test_models.py qwen3.5-9b   # test one model by pattern
+  python3 test_models.py qwen3.5-9b   # single model by pattern
 """
 
 import json
@@ -24,36 +26,44 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ── Paths ─────────────────────────────────────────────────────────────────
+# ── Paths ──────────────────────────────────────────────────────────────────
 REPO_DIR      = Path(__file__).parent.parent
 RUNNER_DIR    = Path(__file__).parent
-VLLM_SCRIPT   = Path.home() / "vllm_spark.sh"        # production copy
+VLLM_SCRIPT   = Path.home() / "vllm_spark.sh"
 HF_MODELS_DIR = Path(os.environ.get("HF_MODELS_DIR", Path.home() / "hf_models"))
 STATUS_FILE   = RUNNER_DIR / "model_status.md"
 
 # ── Runtime config ─────────────────────────────────────────────────────────
-HOST_PORT        = int(os.environ.get("HOST_PORT", "8000"))
-BASE_URL         = f"http://127.0.0.1:{HOST_PORT}"
-CONTAINER        = os.environ.get("CONTAINER_NAME", "vllm-server")
-VLLM_TAG         = os.environ.get("DEFAULT_VLLM_TAG", "v0.17.1")
-STARTUP_TIMEOUT  = int(os.environ.get("STARTUP_TIMEOUT", "600"))   # 10 min
-POLL_INTERVAL    = 10   # seconds between readiness checks
-QUERY_TIMEOUT    = 120  # seconds per query
+HOST_PORT       = int(os.environ.get("HOST_PORT",        "8000"))
+BASE_URL        = f"http://127.0.0.1:{HOST_PORT}"
+CONTAINER       = os.environ.get("CONTAINER_NAME",       "vllm-server")
+VLLM_TAG        = os.environ.get("DEFAULT_VLLM_TAG",     "v0.17.1")
+STARTUP_TIMEOUT = int(os.environ.get("STARTUP_TIMEOUT",  "600"))   # seconds
+POLL_INTERVAL   = 10
+QUERY_TIMEOUT   = 180   # per query (generous for large models)
 
-# ── Test queries ───────────────────────────────────────────────────────────
-TEST_QUERIES = [
+# Benchmark generation length – long enough for stable tok/s, short enough to be quick
+BENCH_MAX_TOKENS = 150
+BENCH_PROMPT     = (
+    "Explain in detail how a transformer neural network processes text. "
+    "Cover tokenization, embeddings, attention heads, and output generation."
+)
+
+
+# ── Correctness queries ────────────────────────────────────────────────────
+CORRECTNESS_QUERIES = [
     {
-        "label": "sanity",
+        "label":    "sanity",
         "messages": [{"role": "user", "content": "Reply with exactly one word: Ready"}],
         "max_tokens": 10,
     },
     {
-        "label": "math",
+        "label":    "math",
         "messages": [{"role": "user", "content": "What is 7 × 8? Reply with just the number."}],
         "max_tokens": 10,
     },
     {
-        "label": "short-text",
+        "label":    "capitals",
         "messages": [{"role": "user", "content": "Name the capital of Japan in one word."}],
         "max_tokens": 10,
     },
@@ -90,7 +100,6 @@ def docker_rm() -> None:
 
 
 def start_model(model_name: str) -> tuple[bool, str]:
-    """Start vllm_spark.sh for the given model. Returns (ok, stderr)."""
     docker_rm()
     proc = subprocess.run(
         [str(VLLM_SCRIPT), "--model", model_name, "--skip-pull"],
@@ -121,9 +130,10 @@ def get_model_id() -> str | None:
 
 
 def send_query(model_id: str, messages: list, max_tokens: int = 10) -> tuple[str | None, float | None]:
+    """Non-streaming query. Returns (text, latency_s)."""
     payload = json.dumps({
-        "model": model_id,
-        "messages": messages,
+        "model":      model_id,
+        "messages":   messages,
         "max_tokens": max_tokens,
         "temperature": 0,
     }).encode()
@@ -136,11 +146,94 @@ def send_query(model_id: str, messages: list, max_tokens: int = 10) -> tuple[str
         )
         with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT) as r:
             data = json.loads(r.read())
-        elapsed = time.monotonic() - t0
-        text = data["choices"][0]["message"]["content"].strip()
-        return text, round(elapsed, 1)
-    except Exception as e:
+        return data["choices"][0]["message"]["content"].strip(), round(time.monotonic() - t0, 1)
+    except Exception:
         return None, None
+
+
+def bench_stream(model_id: str) -> dict:
+    """
+    Streaming benchmark query.
+    Returns:
+      ttft_s       – time to first output token (seconds)
+      throughput_s – output tokens / second (generation phase only)
+      output_tokens – number of output tokens (from usage if available, else estimated)
+      total_s      – wall-clock time for entire response
+      error        – None or error string
+    """
+    payload = json.dumps({
+        "model":          model_id,
+        "messages":       [{"role": "user", "content": BENCH_PROMPT}],
+        "max_tokens":     BENCH_MAX_TOKENS,
+        "temperature":    0,
+        "stream":         True,
+        "stream_options": {"include_usage": True},
+    }).encode()
+
+    result = {
+        "ttft_s":       None,
+        "throughput_s": None,
+        "output_tokens": None,
+        "total_s":      None,
+        "error":        None,
+    }
+
+    t0 = time.monotonic()
+    ttft: float | None = None
+    char_count = 0
+    usage_tokens: int | None = None
+
+    try:
+        req = urllib.request.Request(
+            f"{BASE_URL}/v1/chat/completions",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT) as r:
+            for raw_line in r:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                # Usage appears in last chunk when include_usage=True
+                if chunk.get("usage"):
+                    usage_tokens = chunk["usage"].get("completion_tokens")
+
+                choices = chunk.get("choices", [])
+                if not choices:
+                    continue
+                content = choices[0].get("delta", {}).get("content", "")
+                if content:
+                    if ttft is None:
+                        ttft = time.monotonic() - t0
+                    char_count += len(content)
+
+        total = time.monotonic() - t0
+
+        # Token count: prefer usage field, fall back to rough char estimate (÷4)
+        out_tokens = usage_tokens if usage_tokens is not None else max(1, char_count // 4)
+
+        gen_time = total - (ttft or 0)
+        throughput = round(out_tokens / gen_time, 1) if gen_time > 0 else None
+
+        result.update({
+            "ttft_s":        round(ttft, 2) if ttft is not None else None,
+            "throughput_s":  throughput,
+            "output_tokens": out_tokens,
+            "total_s":       round(total, 1),
+        })
+
+    except Exception as e:
+        result["error"] = str(e)[:120]
+
+    return result
 
 
 def last_container_error() -> str:
@@ -167,7 +260,9 @@ def test_model(model_name: str) -> dict:
         "started":     False,
         "ready":       False,
         "startup_s":   None,
-        "responses":   [],
+        "warmup_s":    None,
+        "correctness": [],
+        "bench":       {},
         "error":       None,
     }
 
@@ -176,7 +271,7 @@ def test_model(model_name: str) -> dict:
 
     ok, output = start_model(model_name)
     if not ok:
-        result["error"] = f"vllm_spark.sh exited non-zero"
+        result["error"] = "vllm_spark.sh exited non-zero"
         log(f"  ERR  Container start failed:\n{output[-500:]}")
         return result
     result["started"] = True
@@ -195,18 +290,38 @@ def test_model(model_name: str) -> dict:
 
     model_id = get_model_id()
     if not model_id:
-        result["error"] = "Could not resolve model id from /v1/models"
+        result["error"] = "Could not resolve model id"
         docker_rm()
         return result
 
-    for q in TEST_QUERIES:
-        text, elapsed = send_query(model_id, q["messages"], q["max_tokens"])
-        resp = {"label": q["label"], "reply": text, "latency_s": elapsed}
-        result["responses"].append(resp)
+    # ── Warmup (first request triggers CUDA JIT; discard for benchmarking) ──
+    log(f"  ..   Warmup query …")
+    _, warmup_s = send_query(model_id,
+                             [{"role": "user", "content": "Hi"}],
+                             max_tokens=5)
+    result["warmup_s"] = warmup_s
+    log(f"  OK   Warmup done in {warmup_s}s")
+
+    # ── Correctness queries ────────────────────────────────────────────────
+    for q in CORRECTNESS_QUERIES:
+        text, latency = send_query(model_id, q["messages"], q["max_tokens"])
+        result["correctness"].append({"label": q["label"], "reply": text, "latency_s": latency})
         if text is not None:
-            log(f"  OK   [{q['label']}] → '{text}'  ({elapsed}s)")
+            log(f"  OK   [{q['label']}] → '{text}'  ({latency}s)")
         else:
-            log(f"  ERR  [{q['label']}] query failed")
+            log(f"  ERR  [{q['label']}] failed")
+
+    # ── Streaming benchmark ────────────────────────────────────────────────
+    log(f"  ..   Streaming benchmark ({BENCH_MAX_TOKENS} tok max) …")
+    bench = bench_stream(model_id)
+    result["bench"] = bench
+    if bench["error"]:
+        log(f"  ERR  Bench: {bench['error']}")
+    else:
+        log(f"  OK   TTFT {bench['ttft_s']}s  |  "
+            f"{bench['throughput_s']} tok/s  |  "
+            f"{bench['output_tokens']} tokens  |  "
+            f"{bench['total_s']}s total")
 
     docker_rm()
     return result
@@ -214,8 +329,16 @@ def test_model(model_name: str) -> dict:
 
 # ── Markdown report ────────────────────────────────────────────────────────
 
+def _cell(val, unit: str = "", decimals: int = 1) -> str:
+    if val is None:
+        return "—"
+    if isinstance(val, float):
+        return f"{val:.{decimals}f}{unit}"
+    return f"{val}{unit}"
+
+
 def write_status_md(results: list[dict], total: int) -> None:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     done = len(results)
 
     lines = [
@@ -225,37 +348,65 @@ def write_status_md(results: list[dict], total: int) -> None:
         f"**vLLM image:** `vllm/vllm-openai:{VLLM_TAG}`  ",
         f"**Last run:** {now} ({done}/{total} models tested)",
         "",
-        "| Model | Status | Startup | sanity | math | short-text |",
-        "|---|:---:|---:|---|---|---|",
+        "## Results",
+        "",
+        "| Model | Status | Startup | Warmup | TTFT | Throughput | Out tokens | Bench total |",
+        "|---|:---:|---:|---:|---:|---:|---:|---:|",
     ]
 
     for r in results:
-        name = r["model"]
+        name = f"`{r['model']}`"
 
         if not r["started"]:
-            status = "❌ start failed"
-            startup = q1 = q2 = q3 = "—"
-        elif not r["ready"]:
-            err = (r["error"] or "")[:80]
-            status = f"❌ `{err}`"
-            startup = q1 = q2 = q3 = "—"
-        else:
-            all_ok = all(resp["reply"] is not None for resp in r["responses"])
-            status = "✅" if all_ok else "⚠️ partial"
-            startup = f"{r['startup_s']}s"
-            q1 = q2 = q3 = "—"
-            for resp in r["responses"]:
-                cell = f"`{resp['reply']}`&nbsp;{resp['latency_s']}s" if resp["reply"] else "❌"
-                if resp["label"] == "sanity":
-                    q1 = cell
-                elif resp["label"] == "math":
-                    q2 = cell
-                elif resp["label"] == "short-text":
-                    q3 = cell
+            lines.append(f"| {name} | ❌ start failed | — | — | — | — | — | — |")
+            continue
 
-        lines.append(f"| `{name}` | {status} | {startup} | {q1} | {q2} | {q3} |")
+        if not r["ready"]:
+            err = (r["error"] or "unknown")[:60]
+            lines.append(f"| {name} | ❌ `{err}` | — | — | — | — | — | — |")
+            continue
+
+        all_ok   = all(c["reply"] is not None for c in r["correctness"])
+        bench_ok = not r["bench"].get("error") and r["bench"].get("ttft_s") is not None
+        if all_ok and bench_ok:
+            status = "✅"
+        elif all_ok:
+            status = "⚠️ bench failed"
+        else:
+            status = "⚠️ partial"
+
+        b = r["bench"]
+        lines.append(
+            f"| {name} | {status} "
+            f"| {_cell(r['startup_s'], 's', 0)} "
+            f"| {_cell(r['warmup_s'], 's', 1)} "
+            f"| {_cell(b.get('ttft_s'), 's', 2)} "
+            f"| {_cell(b.get('throughput_s'), ' tok/s', 1)} "
+            f"| {_cell(b.get('output_tokens'), '', 0)} "
+            f"| {_cell(b.get('total_s'), 's', 1)} |"
+        )
+
+    # Correctness detail
+    lines += ["", "## Correctness", ""]
+    lines += ["| Model | sanity | math | capitals |", "|---|---|---|---|"]
+    for r in results:
+        if not r.get("ready"):
+            continue
+        name = f"`{r['model']}`"
+        cells = {}
+        for c in r.get("correctness", []):
+            v = f"`{c['reply']}`&nbsp;{c['latency_s']}s" if c["reply"] else "❌"
+            cells[c["label"]] = v
+        lines.append(
+            f"| {name} "
+            f"| {cells.get('sanity', '—')} "
+            f"| {cells.get('math', '—')} "
+            f"| {cells.get('capitals', '—')} |"
+        )
 
     lines += [
+        "",
+        "---",
         "",
         "> Auto-generated by [`runner/test_models.py`](test_models.py). "
         "Do not edit manually.",
@@ -302,23 +453,17 @@ def main() -> None:
         results.append(r)
         write_status_md(results, total=len(models))
 
-        # push intermediate results so progress is visible on GitHub
-        done = len(results)
+        done      = len(results)
         remaining = len(models) - done
         git_push(
-            f"ci: model status update ({done}/{len(models)} tested, {remaining} remaining)\n\n"
+            f"ci: model status {done}/{len(models)} "
+            f"({'done' if remaining == 0 else f'{remaining} remaining'})\n\n"
             f"Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
         )
 
     log(f"{'═'*56}")
     ok  = sum(1 for r in results if r["ready"])
-    err = len(results) - ok
-    log(f"Done. {ok}/{len(results)} models OK, {err} failed.")
-
-    git_push(
-        f"ci: model status – final ({ok}/{len(results)} OK)\n\n"
-        f"Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
-    )
+    log(f"Done. {ok}/{len(results)} models OK.")
 
 
 if __name__ == "__main__":
