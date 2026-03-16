@@ -2,7 +2,7 @@
 
 **Hardware:** DGX Spark · GB10 · 128 GB unified memory  
 **vLLM image:** `vllm/vllm-openai:v0.17.1`  
-**Last run:** 2026-03-16 21:40 UTC (8/15 models tested)
+**Last run:** 2026-03-16 21:46 UTC (9/15 models tested)
 
 ## Results
 
@@ -16,6 +16,7 @@
 | `Qwen--Qwen3.5-4B` | ✅ | 160s | 48.0s | 9.01s | 21.5 tok/s | 150 | 16.0s |
 | `Qwen--Qwen3.5-9B` | ✅ | 170s | 48.4s | 9.06s | 13.0 tok/s | 150 | 20.6s |
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | ⚠️ bench failed | 390s | 19.0s | — | 107.6 tok/s | 150 | 1.4s |
+| `mistralai--Ministral-3-14B-Instruct-2512` | ⚠️ bench failed | 310s | 18.7s | — | 109.5 tok/s | 150 | 1.4s |
 
 ## Correctness
 
@@ -52,6 +53,7 @@
 
 1.  **Analyze`&nbsp;0.8s |
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | `azy`&nbsp;0.1s | `agan`&nbsp;0.1s | ❌ |
+| `mistralai--Ministral-3-14B-Instruct-2512` | ❌ | `渡`&nbsp;0.1s | ❌ |
 
 ---
 
