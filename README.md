@@ -108,7 +108,7 @@ DEFAULT_VLLM_TAG=v0.18.0 ./vllm_spark.sh --model qwen3.5-9b
 | Qwen/Qwen3.5-{0.8,2,4,9,27,35}B | ✅ auto-profile |
 | mistralai/Ministral-3-{3,8,14}B | ✅ auto-profile |
 | mistralai/Devstral-Small-2-24B | ✅ auto-profile |
-| nvidia/NVIDIA-Nemotron-3-Super-120B | 🔬 untested – validate on first run |
+| nvidia/NVIDIA-Nemotron-3-Super-120B | ❌ NVFP4 FP4 GEMM kernel missing for sm_120 (vLLM 0.17.1) |
 | openai/gpt-oss-120b | 🔬 untested – validate on first run |
 | Qwen3-TTS / Voxtral (audio) | ❌ not supported by `vllm serve` |
 
