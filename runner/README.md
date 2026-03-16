@@ -20,7 +20,19 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 
 ## Benchmark Results
 
-Benchmark in progress — results will appear here as each model completes.
+**Hardware:** DGX Spark · GB10 · 128 GB unified memory  
+**vLLM image:** `vllm/vllm-openai:v0.17.1`  
+**Last run:** 2026-03-16 21:55 UTC (1/15 models tested)
+
+| Model | Status | Startup | Warmup | TTFT | Throughput | Out tokens | Bench total |
+|---|:---:|---:|---:|---:|---:|---:|---:|
+| `Qwen--Qwen3.5-0.8B` | ✅ | 110s | 48.2s | 0.04s | 116.3&nbsp;tok/s | 150 | 1.3s |
+
+## Correctness
+
+| Model | sanity | math | capitals |
+|---|---|---|---|
+| `Qwen--Qwen3.5-0.8B` | `Ready`&nbsp;8.8s | `56`&nbsp;0.0s | `Tokyo`&nbsp;0.0s |
 
 ---
 
