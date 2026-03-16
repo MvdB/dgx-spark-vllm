@@ -1,0 +1,163 @@
+# dgx-spark-vllm
+
+Tooling for running [vLLM](https://github.com/vllm-project/vllm) on the
+**NVIDIA DGX Spark** (GB10 SoC, 128 GB unified memory) and keeping a local
+HuggingFace model collection in sync.
+
+## Contents
+
+| File | Purpose |
+|---|---|
+| `vllm_spark.sh` | Interactive model picker + vLLM container runner |
+| `vllm_spark_profiler.py` | Auto-generates per-model vLLM parameter profiles |
+| `hf_sync.py` | Syncs a HuggingFace collection to a local directory |
+| `hf_sync.bat` | Windows wrapper for `hf_sync.py` |
+
+---
+
+## vLLM runner
+
+### Requirements
+
+- Docker with GPU support (`--gpus all`)
+- `python3` in PATH
+- Local model directory (default `~/hf_models/`, populated by `hf_sync.py`)
+
+### Quickstart
+
+```bash
+# 1. Generate parameter profiles for all local models (once)
+./vllm_spark.sh --gen-profiles
+
+# 2. Start the server – interactive menu
+./vllm_spark.sh
+
+# 3. Or pick a model directly
+./vllm_spark.sh --model qwen3.5-9b --tail
+```
+
+### How it works
+
+1. `vllm_spark.sh` scans `~/hf_models/` for model directories.
+2. For each directory it loads (or generates) a `vllm_profile.conf` – a
+   bash-sourceable file with optimal vLLM parameters for that model.
+3. The selected model is mounted read-only into the container at `/hf_models/`
+   and served via `vllm serve <local-path> <profile-flags>`.
+
+No model data is downloaded at serve time – everything comes from the local
+store.
+
+### Profile files
+
+`vllm_spark_profiler.py` reads each model's `config.json` and writes a
+`vllm_profile.conf` alongside it.  The file is human-editable; run
+`--regen-profile` to reset it to auto-calculated values.
+
+```bash
+# Regenerate profile for one model
+./vllm_spark.sh --model ministral-8b --regen-profile
+
+# Force-regenerate all profiles
+python3 vllm_spark_profiler.py ~/hf_models/mistralai--Ministral-3-8B-Instruct-2512 --force
+```
+
+Key parameters tuned per model (targeting 85 % of 128 GB, 2–4 parallel users):
+
+| Parameter | Description |
+|---|---|
+| `PROFILE_MAX_MODEL_LEN` | Maximum context length |
+| `PROFILE_MAX_NUM_SEQS` | Parallel sequences (2 for ≥ 60 GB models, 4 otherwise) |
+| `PROFILE_GPU_MEM_UTIL` | Fraction of GPU memory allocated to vLLM |
+| `PROFILE_ENFORCE_EAGER` | Disables CUDA graph capture (required for some MoE models) |
+| `PROFILE_NUM_GPU_BLOCKS_OVERRIDE` | Hard-caps KV-cache blocks (empirically validated) |
+| `PROFILE_QUANTIZATION` | Weight quantization backend (e.g. `gptq_marlin`, `fp8`) |
+| `PROFILE_KV_CACHE_DTYPE` | KV-cache element type (default `fp8` to save memory) |
+| `PROFILE_REASONING_PARSER` | Structured reasoning output parser |
+| `PROFILE_TOOL_CALL_PARSER` | Tool-call output parser |
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `HF_MODELS_DIR` | `~/hf_models` | Local model store |
+| `IMAGE_REPO` | `vllm/vllm-openai` | Docker image repository |
+| `DEFAULT_VLLM_TAG` | `v0.17.1` | Image tag |
+| `CONTAINER_NAME` | `vllm-server` | Container name |
+| `HOST_PORT` | `8000` | Port exposed on the host |
+| `VLLM_EXTRA_ARGS` | _(empty)_ | Additional `vllm serve` flags |
+| `DOCKER_IPC_HOST` | `0` | Set to `1` to add `--ipc host` |
+
+Override on the command line:
+
+```bash
+DEFAULT_VLLM_TAG=v0.18.0 ./vllm_spark.sh --model qwen3.5-9b
+```
+
+### Tested configuration
+
+| Model | Status |
+|---|---|
+| Qwen/Qwen3.5-122B-A10B-GPTQ-Int4 | ✅ validated (empirical KV-cache tuning) |
+| Qwen/Qwen3.5-{0.8,2,4,9,27,35}B | ✅ auto-profile |
+| mistralai/Ministral-3-{3,8,14}B | ✅ auto-profile |
+| mistralai/Devstral-Small-2-24B | ✅ auto-profile |
+| nvidia/NVIDIA-Nemotron-3-Super-120B | 🔬 untested – validate on first run |
+| openai/gpt-oss-120b | 🔬 untested – validate on first run |
+| Qwen3-TTS / Voxtral | ❌ not supported by vllm serve |
+
+---
+
+## HuggingFace collection sync
+
+Keeps a named HuggingFace collection mirrored locally.
+Updates are detected via commit SHA – already-current models are skipped.
+
+### Setup
+
+```bash
+python -m venv .venv
+
+# Linux / macOS
+source .venv/bin/activate
+
+# Windows
+.venv\Scripts\activate
+
+pip install -r requirements.txt
+
+cp .env.example .env
+# → insert your HF_TOKEN
+```
+
+### Usage
+
+```bash
+# Linux / macOS
+python hf_sync.py
+
+# Windows
+hf_sync.bat
+```
+
+Set `HF_COLLECTION` in `.env` to match the exact (or partial) name of your
+collection.  Default is `LocalCache`.
+
+### Directory layout
+
+```
+~/hf_models/
+├── Qwen--Qwen3.5-9B/
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── vllm_profile.conf   ← auto-generated, gitignored
+│   └── ...
+├── mistralai--Ministral-3-8B-Instruct-2512/
+│   └── ...
+└── .sync_state.json        ← resume state, gitignored
+```
+
+---
+
+## License
+
+MIT – see [LICENSE](LICENSE)
