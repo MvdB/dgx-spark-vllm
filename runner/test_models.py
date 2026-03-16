@@ -6,10 +6,10 @@ Per model:
   1. Start vllm_spark.sh
   2. Wait until API is ready  → startup_s
   3. Warmup query             → warmup_s  (first request triggers CUDA JIT)
-  4. Correctness queries      → sanity / math / short-text
+  4. Correctness queries      → sanity / math / capitals
   5. Streaming benchmark      → TTFT, throughput (tok/s), total bench time
   6. Stop container
-  7. Write runner/model_status.md and push to git
+  7. Write runner/README.md and push to git
 
 Usage:
   python3 test_models.py              # test all compatible models
@@ -21,7 +21,6 @@ import os
 import subprocess
 import sys
 import time
-import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,41 +30,51 @@ REPO_DIR      = Path(__file__).parent.parent
 RUNNER_DIR    = Path(__file__).parent
 VLLM_SCRIPT   = Path.home() / "vllm_spark.sh"
 HF_MODELS_DIR = Path(os.environ.get("HF_MODELS_DIR", Path.home() / "hf_models"))
-STATUS_FILE   = RUNNER_DIR / "model_status.md"
+STATUS_FILE   = RUNNER_DIR / "README.md"
 
 # ── Runtime config ─────────────────────────────────────────────────────────
 HOST_PORT       = int(os.environ.get("HOST_PORT",        "8000"))
 BASE_URL        = f"http://127.0.0.1:{HOST_PORT}"
 CONTAINER       = os.environ.get("CONTAINER_NAME",       "vllm-server")
 VLLM_TAG        = os.environ.get("DEFAULT_VLLM_TAG",     "v0.17.1")
-STARTUP_TIMEOUT = int(os.environ.get("STARTUP_TIMEOUT",  "600"))   # seconds
+STARTUP_TIMEOUT = int(os.environ.get("STARTUP_TIMEOUT",  "600"))
 POLL_INTERVAL   = 10
-QUERY_TIMEOUT   = 180   # per query (generous for large models)
+QUERY_TIMEOUT   = 180
 
-# Benchmark generation length – long enough for stable tok/s, short enough to be quick
+# Benchmark: long enough for stable tok/s, short enough to be quick
 BENCH_MAX_TOKENS = 150
 BENCH_PROMPT     = (
-    "Explain in detail how a transformer neural network processes text. "
-    "Cover tokenization, embeddings, attention heads, and output generation."
+    "Explain how a transformer neural network processes text. "
+    "Cover tokenization, embeddings, attention, and output generation."
 )
+
+# System message used for all correctness queries.
+# Disables extended thinking on Qwen3 / reasoning models so replies are concise.
+CONCISE_SYSTEM = {
+    "role": "system",
+    "content": "Reply as briefly as possible. No reasoning steps, no explanation.",
+}
 
 
 # ── Correctness queries ────────────────────────────────────────────────────
 CORRECTNESS_QUERIES = [
     {
         "label":    "sanity",
-        "messages": [{"role": "user", "content": "Reply with exactly one word: Ready"}],
-        "max_tokens": 10,
+        "messages": [CONCISE_SYSTEM,
+                     {"role": "user", "content": "Reply with exactly one word: Ready"}],
+        "max_tokens": 15,
     },
     {
         "label":    "math",
-        "messages": [{"role": "user", "content": "What is 7 × 8? Reply with just the number."}],
-        "max_tokens": 10,
+        "messages": [CONCISE_SYSTEM,
+                     {"role": "user", "content": "What is 7 × 8? Reply with just the number."}],
+        "max_tokens": 15,
     },
     {
         "label":    "capitals",
-        "messages": [{"role": "user", "content": "Name the capital of Japan in one word."}],
-        "max_tokens": 10,
+        "messages": [CONCISE_SYSTEM,
+                     {"role": "user", "content": "Capital of Japan? One word."}],
+        "max_tokens": 15,
     },
 ]
 
@@ -73,8 +82,7 @@ CORRECTNESS_QUERIES = [
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def log(msg: str) -> None:
-    ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
 def get_compatible_models() -> list[str]:
@@ -129,12 +137,11 @@ def get_model_id() -> str | None:
         return None
 
 
-def send_query(model_id: str, messages: list, max_tokens: int = 10) -> tuple[str | None, float | None]:
-    """Non-streaming query. Returns (text, latency_s)."""
+def send_query(model_id: str, messages: list, max_tokens: int = 15) -> tuple[str | None, float | None]:
     payload = json.dumps({
-        "model":      model_id,
-        "messages":   messages,
-        "max_tokens": max_tokens,
+        "model":       model_id,
+        "messages":    messages,
+        "max_tokens":  max_tokens,
         "temperature": 0,
     }).encode()
     t0 = time.monotonic()
@@ -146,20 +153,19 @@ def send_query(model_id: str, messages: list, max_tokens: int = 10) -> tuple[str
         )
         with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT) as r:
             data = json.loads(r.read())
-        return data["choices"][0]["message"]["content"].strip(), round(time.monotonic() - t0, 1)
+        text = data["choices"][0]["message"]["content"].strip()
+        return text, round(time.monotonic() - t0, 1)
     except Exception:
         return None, None
 
 
 def bench_stream(model_id: str) -> dict:
     """
-    Streaming benchmark query.
-    Returns:
-      ttft_s       – time to first output token (seconds)
-      throughput_s – output tokens / second (generation phase only)
-      output_tokens – number of output tokens (from usage if available, else estimated)
-      total_s      – wall-clock time for entire response
-      error        – None or error string
+    Streaming benchmark. Measures:
+      ttft_s        time to first output token
+      throughput_s  output tok/s (generation phase only, i.e. after first token)
+      output_tokens from vLLM usage field if available, else char-count estimate
+      total_s       wall-clock for whole response
     """
     payload = json.dumps({
         "model":          model_id,
@@ -170,16 +176,14 @@ def bench_stream(model_id: str) -> dict:
         "stream_options": {"include_usage": True},
     }).encode()
 
-    result = {
-        "ttft_s":       None,
-        "throughput_s": None,
-        "output_tokens": None,
-        "total_s":      None,
-        "error":        None,
+    result: dict = {
+        "ttft_s": None, "throughput_s": None,
+        "output_tokens": None, "total_s": None, "error": None,
     }
 
     t0 = time.monotonic()
     ttft: float | None = None
+    first_chunk_t: float | None = None   # time of any first content-carrying chunk
     char_count = 0
     usage_tokens: int | None = None
 
@@ -190,8 +194,8 @@ def bench_stream(model_id: str) -> dict:
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT) as r:
-            for raw_line in r:
-                line = raw_line.decode("utf-8", errors="replace").strip()
+            for raw in r:
+                line = raw.decode("utf-8", errors="replace").strip()
                 if not line.startswith("data: "):
                     continue
                 data_str = line[6:]
@@ -202,14 +206,20 @@ def bench_stream(model_id: str) -> dict:
                 except json.JSONDecodeError:
                     continue
 
-                # Usage appears in last chunk when include_usage=True
                 if chunk.get("usage"):
                     usage_tokens = chunk["usage"].get("completion_tokens")
 
                 choices = chunk.get("choices", [])
                 if not choices:
                     continue
-                content = choices[0].get("delta", {}).get("content", "")
+
+                delta   = choices[0].get("delta", {})
+                content = delta.get("content") or ""
+
+                # Track time of first chunk that has ANY delta (even empty content)
+                if first_chunk_t is None and delta:
+                    first_chunk_t = time.monotonic() - t0
+
                 if content:
                     if ttft is None:
                         ttft = time.monotonic() - t0
@@ -217,11 +227,13 @@ def bench_stream(model_id: str) -> dict:
 
         total = time.monotonic() - t0
 
-        # Token count: prefer usage field, fall back to rough char estimate (÷4)
-        out_tokens = usage_tokens if usage_tokens is not None else max(1, char_count // 4)
+        # If ttft wasn't captured (model streams in one chunk), fall back to first chunk time
+        if ttft is None and first_chunk_t is not None:
+            ttft = first_chunk_t
 
-        gen_time = total - (ttft or 0)
-        throughput = round(out_tokens / gen_time, 1) if gen_time > 0 else None
+        out_tokens = usage_tokens if usage_tokens is not None else max(1, char_count // 4)
+        gen_time   = max(0.01, total - (ttft or 0))
+        throughput = round(out_tokens / gen_time, 1)
 
         result.update({
             "ttft_s":        round(ttft, 2) if ttft is not None else None,
@@ -256,14 +268,9 @@ def last_container_error() -> str:
 
 def test_model(model_name: str) -> dict:
     result: dict = {
-        "model":       model_name,
-        "started":     False,
-        "ready":       False,
-        "startup_s":   None,
-        "warmup_s":    None,
-        "correctness": [],
-        "bench":       {},
-        "error":       None,
+        "model": model_name, "started": False, "ready": False,
+        "startup_s": None, "warmup_s": None,
+        "correctness": [], "bench": {}, "error": None,
     }
 
     log(f"{'─'*56}")
@@ -272,7 +279,7 @@ def test_model(model_name: str) -> dict:
     ok, output = start_model(model_name)
     if not ok:
         result["error"] = "vllm_spark.sh exited non-zero"
-        log(f"  ERR  Container start failed:\n{output[-500:]}")
+        log(f"  ERR  {output[-300:]}")
         return result
     result["started"] = True
 
@@ -280,7 +287,7 @@ def test_model(model_name: str) -> dict:
     t0 = time.monotonic()
     if not wait_ready():
         result["error"] = last_container_error()
-        log(f"  ERR  Timeout / crash: {result['error']}")
+        log(f"  ERR  {result['error']}")
         docker_rm()
         return result
 
@@ -294,42 +301,38 @@ def test_model(model_name: str) -> dict:
         docker_rm()
         return result
 
-    # ── Warmup (first request triggers CUDA JIT; discard for benchmarking) ──
-    log(f"  ..   Warmup query …")
-    _, warmup_s = send_query(model_id,
-                             [{"role": "user", "content": "Hi"}],
-                             max_tokens=5)
+    # Warmup
+    log(f"  ..   Warmup …")
+    _, warmup_s = send_query(model_id, [{"role": "user", "content": "Hi"}], max_tokens=5)
     result["warmup_s"] = warmup_s
-    log(f"  OK   Warmup done in {warmup_s}s")
+    log(f"  OK   Warmup {warmup_s}s")
 
-    # ── Correctness queries ────────────────────────────────────────────────
+    # Correctness
     for q in CORRECTNESS_QUERIES:
         text, latency = send_query(model_id, q["messages"], q["max_tokens"])
         result["correctness"].append({"label": q["label"], "reply": text, "latency_s": latency})
         if text is not None:
-            log(f"  OK   [{q['label']}] → '{text}'  ({latency}s)")
+            log(f"  OK   [{q['label']}] → '{text[:40]}'  ({latency}s)")
         else:
             log(f"  ERR  [{q['label']}] failed")
 
-    # ── Streaming benchmark ────────────────────────────────────────────────
-    log(f"  ..   Streaming benchmark ({BENCH_MAX_TOKENS} tok max) …")
+    # Benchmark
+    log(f"  ..   Streaming benchmark ({BENCH_MAX_TOKENS} tok) …")
     bench = bench_stream(model_id)
     result["bench"] = bench
     if bench["error"]:
         log(f"  ERR  Bench: {bench['error']}")
     else:
-        log(f"  OK   TTFT {bench['ttft_s']}s  |  "
-            f"{bench['throughput_s']} tok/s  |  "
-            f"{bench['output_tokens']} tokens  |  "
-            f"{bench['total_s']}s total")
+        log(f"  OK   TTFT {bench['ttft_s']}s | {bench['throughput_s']} tok/s | "
+            f"{bench['output_tokens']} tok | {bench['total_s']}s total")
 
     docker_rm()
     return result
 
 
-# ── Markdown report ────────────────────────────────────────────────────────
+# ── Markdown helpers ───────────────────────────────────────────────────────
 
-def _cell(val, unit: str = "", decimals: int = 1) -> str:
+def _fmt(val, unit: str = "", decimals: int = 1) -> str:
     if val is None:
         return "—"
     if isinstance(val, float):
@@ -337,18 +340,50 @@ def _cell(val, unit: str = "", decimals: int = 1) -> str:
     return f"{val}{unit}"
 
 
-def write_status_md(results: list[dict], total: int) -> None:
+def _cell(reply: str | None, latency: float | None) -> str:
+    """Safe markdown table cell for a correctness reply."""
+    if reply is None:
+        return "❌"
+    # Sanitize: strip newlines, escape pipes, truncate
+    text = reply.replace("\r", "").replace("\n", " ").replace("|", "\\|").strip()
+    if len(text) > 35:
+        text = text[:34] + "…"
+    lat = f"&nbsp;{latency}s" if latency is not None else ""
+    return f"`{text}`{lat}"
+
+
+# ── Write README.md ────────────────────────────────────────────────────────
+
+def write_readme(results: list[dict], total: int) -> None:
     now  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     done = len(results)
 
     lines = [
-        "# Model Status",
+        "# runner",
+        "",
+        "Scripts for starting vLLM on DGX Spark and benchmarking local models.",
+        "",
+        "| File | Purpose |",
+        "|---|---|",
+        "| `vllm_spark.sh` | Interactive model picker + vLLM container runner |",
+        "| `vllm_spark_profiler.py` | Auto-generates per-model vLLM parameter profiles |",
+        "| `test_models.py` | Smoke-test + benchmark runner (writes this file) |",
+        "",
+        "See the [main README](../README.md) for full documentation.",
+        "",
+        "To re-run the benchmark:",
+        "```bash",
+        "python3 test_models.py              # all models",
+        "python3 test_models.py qwen3.5-9b   # single model by pattern",
+        "```",
+        "",
+        "---",
+        "",
+        "## Benchmark Results",
         "",
         f"**Hardware:** DGX Spark · GB10 · 128 GB unified memory  ",
         f"**vLLM image:** `vllm/vllm-openai:{VLLM_TAG}`  ",
         f"**Last run:** {now} ({done}/{total} models tested)",
-        "",
-        "## Results",
         "",
         "| Model | Status | Startup | Warmup | TTFT | Throughput | Out tokens | Bench total |",
         "|---|:---:|---:|---:|---:|---:|---:|---:|",
@@ -356,47 +391,42 @@ def write_status_md(results: list[dict], total: int) -> None:
 
     for r in results:
         name = f"`{r['model']}`"
-
         if not r["started"]:
-            lines.append(f"| {name} | ❌ start failed | — | — | — | — | — | — |")
+            lines.append(f"| {name} | ❌ start&nbsp;failed | — | — | — | — | — | — |")
             continue
-
         if not r["ready"]:
-            err = (r["error"] or "unknown")[:60]
+            err = (r["error"] or "unknown")[:50].replace("|", "\\|")
             lines.append(f"| {name} | ❌ `{err}` | — | — | — | — | — | — |")
             continue
 
         all_ok   = all(c["reply"] is not None for c in r["correctness"])
-        bench_ok = not r["bench"].get("error") and r["bench"].get("ttft_s") is not None
-        if all_ok and bench_ok:
-            status = "✅"
-        elif all_ok:
-            status = "⚠️ bench failed"
-        else:
-            status = "⚠️ partial"
+        b        = r["bench"]
+        bench_ok = not b.get("error") and b.get("ttft_s") is not None
+        status   = "✅" if (all_ok and bench_ok) else ("⚠️" if all_ok else "⚠️&nbsp;partial")
 
-        b = r["bench"]
         lines.append(
             f"| {name} | {status} "
-            f"| {_cell(r['startup_s'], 's', 0)} "
-            f"| {_cell(r['warmup_s'], 's', 1)} "
-            f"| {_cell(b.get('ttft_s'), 's', 2)} "
-            f"| {_cell(b.get('throughput_s'), ' tok/s', 1)} "
-            f"| {_cell(b.get('output_tokens'), '', 0)} "
-            f"| {_cell(b.get('total_s'), 's', 1)} |"
+            f"| {_fmt(r['startup_s'], 's', 0)} "
+            f"| {_fmt(r['warmup_s'], 's', 1)} "
+            f"| {_fmt(b.get('ttft_s'), 's', 2)} "
+            f"| {_fmt(b.get('throughput_s'), '&nbsp;tok/s', 1)} "
+            f"| {_fmt(b.get('output_tokens'), '', 0)} "
+            f"| {_fmt(b.get('total_s'), 's', 1)} |"
         )
 
-    # Correctness detail
-    lines += ["", "## Correctness", ""]
-    lines += ["| Model | sanity | math | capitals |", "|---|---|---|---|"]
+    lines += [
+        "",
+        "## Correctness",
+        "",
+        "| Model | sanity | math | capitals |",
+        "|---|---|---|---|",
+    ]
+
     for r in results:
         if not r.get("ready"):
             continue
-        name = f"`{r['model']}`"
-        cells = {}
-        for c in r.get("correctness", []):
-            v = f"`{c['reply']}`&nbsp;{c['latency_s']}s" if c["reply"] else "❌"
-            cells[c["label"]] = v
+        name  = f"`{r['model']}`"
+        cells = {c["label"]: _cell(c["reply"], c["latency_s"]) for c in r.get("correctness", [])}
         lines.append(
             f"| {name} "
             f"| {cells.get('sanity', '—')} "
@@ -408,8 +438,7 @@ def write_status_md(results: list[dict], total: int) -> None:
         "",
         "---",
         "",
-        "> Auto-generated by [`runner/test_models.py`](test_models.py). "
-        "Do not edit manually.",
+        "> Auto-generated by [`test_models.py`](test_models.py). Do not edit manually.",
         "",
     ]
 
@@ -435,10 +464,8 @@ def git_push(message: str) -> None:
 def main() -> None:
     pattern = sys.argv[1].lower() if len(sys.argv) > 1 else None
     models  = get_compatible_models()
-
     if pattern:
         models = [m for m in models if pattern in m.lower()]
-
     if not models:
         log("No matching compatible models found.")
         sys.exit(1)
@@ -449,20 +476,17 @@ def main() -> None:
 
     results: list[dict] = []
     for model_name in models:
-        r = test_model(model_name)
-        results.append(r)
-        write_status_md(results, total=len(models))
-
-        done      = len(results)
-        remaining = len(models) - done
+        results.append(test_model(model_name))
+        write_readme(results, total=len(models))
+        done = len(results)
         git_push(
-            f"ci: model status {done}/{len(models)} "
-            f"({'done' if remaining == 0 else f'{remaining} remaining'})\n\n"
+            f"ci: benchmark {done}/{len(models)}"
+            f"{' – done' if done == len(models) else ''}\n\n"
             f"Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
         )
 
     log(f"{'═'*56}")
-    ok  = sum(1 for r in results if r["ready"])
+    ok = sum(1 for r in results if r["ready"])
     log(f"Done. {ok}/{len(results)} models OK.")
 
 
