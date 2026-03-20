@@ -34,16 +34,20 @@ UNSUPPORTED_ARCHS = {
 # ── Empirisch validierte Profile (aus Crash-Analyse und Logs) ─────────────
 # Überschreiben die automatisch berechneten Werte vollständig.
 KNOWN_GOOD = {
-    # NVFP4 erfordert cutlass FP4 GEMM – auf GB10 (sm_120) nicht unterstützt in vLLM 0.17.1.
-    # flashinfer hat keinen kompilierten FP4-Tactic für sm_120.
-    # Workaround: BF16-Gewichte nötig (~240 GB) oder neuere vLLM-Version mit sm_120-Support.
+    # Gemischte NVFP4/FP8-Quantisierung (modelopt). Alle FP4-GEMM-Backends
+    # schlagen auf sm_120 (GB10) fehl mit vllm/vllm-openai:v0.17.1:
+    #   FLASHINFER_CUTLASS → TVM hat keine sm_120-Tactic
+    #   VLLM_CUTLASS       → cutlass_scaled_fp4_mm: Error Internal
+    #   MARLIN             → NaN-Logits (modelopt mixed NVFP4/FP8 nicht korrekt interpretiert)
+    # TODO: avarok/dgx-vllm-nvfp4-kernel:v23 + VLLM_TEST_FORCE_FP8_MARLIN=1 noch nicht getestet
+    #       (hat für Mistral-Small-4 funktioniert – könnte auch hier helfen)
     "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
         "PROFILE_VLLM_COMPATIBLE": 0,
         "PROFILE_NOTES": (
-            "INKOMPATIBEL mit vLLM 0.17.1 auf DGX Spark (GB10, sm_120): "
-            "cutlass FP4 GEMM hat keinen kompilierten Tactic für sm_120. "
-            "Fehler: flashinfer_mm_fp4 → [FP4 gemm Runner] Failed on sm120. "
-            "Fix: BF16-Gewichte verwenden (~240 GB) oder vLLM-Version mit sm_120 FP4-Kernel abwarten."
+            "INKOMPATIBEL mit vllm/vllm-openai:v0.17.1 auf sm_120. "
+            "MARLIN erzeugt NaN-Logits; FLASHINFER/VLLM_CUTLASS crashen. "
+            "TODO: avarok/dgx-vllm-nvfp4-kernel:v23 + VLLM_TEST_FORCE_FP8_MARLIN=1 testen "
+            "(hat für Mistral-Small-4 NVFP4 auf DGX Spark funktioniert)."
         ),
     },
     "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4": {
@@ -67,6 +71,41 @@ KNOWN_GOOD = {
             "MoE 122B GPTQ-Int4; Encoder-Cache-Overhead reduziert KV-Pool auf ~27 GiB (571 Blöcke). "
             "512 Blöcke Sicherheitspuffer. enforce_eager pflicht (CUDA-Graph-OOM). "
             "max_model_len=32768 mit evtl. KV-Eviction für lange Kontexte."
+        ),
+    },
+    # Mistral-Small-4 119B NVFP4: benötigt avarok/dgx-vllm-nvfp4-kernel:v23
+    # (Community-Image mit sm_120-kompatiblen NVFP4-Kerneln + mistral_common).
+    # Bau: docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
+    # Mistral-Format-Loading: tokenizer-mode/config-format/load-format = "mistral"
+    # VLLM_MLA_DISABLE=1: verhindert Abstürze durch MLA-Attention auf diesem Modell.
+    # VLLM_TEST_FORCE_FP8_MARLIN=1: erzwingt FP8-MARLIN-Pfad für gemischte Quantisierung.
+    "mistralai--Mistral-Small-4-119B-2603-NVFP4": {
+        "PROFILE_VLLM_COMPATIBLE":         1,
+        "PROFILE_GPU_MEM_UTIL":            "0.75",
+        "PROFILE_MAX_MODEL_LEN":           32768,
+        "PROFILE_MAX_NUM_SEQS":            4,
+        "PROFILE_MAX_NUM_BATCHED_TOKENS":  16384,
+        "PROFILE_KV_CACHE_DTYPE":          "fp8",
+        "PROFILE_TOKENIZER_MODE":          "mistral",
+        "PROFILE_CONFIG_FORMAT":           "mistral",
+        "PROFILE_LOAD_FORMAT":             "mistral",
+        "PROFILE_TOOL_CALL_PARSER":        "mistral",
+        "PROFILE_ENABLE_AUTO_TOOL_CHOICE": 1,
+        "PROFILE_DOCKER_IMAGE":            "spark-mistral-small4:v1",
+        "PROFILE_BASH_WRAPPER":            1,
+        "PROFILE_IPC_HOST":                1,
+        "PROFILE_DOCKER_ENV": (
+            "VLLM_MLA_DISABLE=1"
+            " VLLM_NVFP4_GEMM_BACKEND=marlin"
+            " VLLM_USE_FLASHINFER_MOE_FP4=0"
+            " VLLM_TEST_FORCE_FP8_MARLIN=1"
+            " VLLM_ENGINE_CORE_STARTUP_TIMEOUT=300"
+        ),
+        "PROFILE_NOTES": (
+            "Mistral Small 4 119B NVFP4. Benötigt custom Image spark-mistral-small4:v1 "
+            "(avarok/dgx-vllm-nvfp4-kernel:v23 + mistral_common). "
+            "Bau: docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 . "
+            "Erst bauen, dann Modell starten."
         ),
     },
 }
@@ -117,9 +156,19 @@ KEY_ORDER = [
     "PROFILE_TRUST_REMOTE_CODE",
     "PROFILE_KV_CACHE_DTYPE",
     "PROFILE_HF_OVERRIDES",
+    "PROFILE_ATTENTION_BACKEND",
+    "PROFILE_CHAT_TEMPLATE",
+    "PROFILE_TOKENIZER_MODE",
+    "PROFILE_CONFIG_FORMAT",
+    "PROFILE_LOAD_FORMAT",
     "PROFILE_REASONING_PARSER",
+    "PROFILE_REASONING_PARSER_PLUGIN",
     "PROFILE_TOOL_CALL_PARSER",
     "PROFILE_ENABLE_AUTO_TOOL_CHOICE",
+    "PROFILE_DOCKER_IMAGE",
+    "PROFILE_BASH_WRAPPER",
+    "PROFILE_IPC_HOST",
+    "PROFILE_DOCKER_ENV",
     "PROFILE_NOTES",
 ]
 
