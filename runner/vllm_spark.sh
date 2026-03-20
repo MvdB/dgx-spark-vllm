@@ -381,12 +381,21 @@ stage_verify_model() {
 
 # ---------- Stage 4: Profil laden + vLLM-Args aufbauen ----------
 VLLM_HELP_CACHE=""
+VLLM_HELP_CACHE_IMAGE=""
 
 fetch_vllm_help_once() {
-  [[ -n "${VLLM_HELP_CACHE}" ]] && return 0
-  local image="${IMAGE_REPO}:${VLLM_TAG}"
-  # vllm/vllm-openai hat ENTRYPOINT ["vllm","serve"] → --help direkt übergeben
-  VLLM_HELP_CACHE="$(docker run --rm "${image}" --help 2>&1 || true)"
+  # Re-fetch if a different image is now active (e.g. per-model custom image)
+  local image="${EFFECTIVE_IMAGE:-${IMAGE_REPO}:${VLLM_TAG}}"
+  [[ -n "${VLLM_HELP_CACHE}" && "${image}" == "${VLLM_HELP_CACHE_IMAGE}" ]] && return 0
+  VLLM_HELP_CACHE_IMAGE="${image}"
+  if (( BASH_WRAPPER == 1 )); then
+    # Image uses plain bash entrypoint — query help via bash wrapper
+    VLLM_HELP_CACHE="$(docker run --rm --gpus all --entrypoint "" "${image}" \
+      /bin/bash -lc "vllm serve --help=all" 2>&1 || true)"
+  else
+    # Standard vllm/vllm-openai image: ENTRYPOINT is already "vllm serve"
+    VLLM_HELP_CACHE="$(docker run --rm --gpus all "${image}" --help=all 2>&1 || true)"
+  fi
 }
 
 vllm_supports() {
@@ -425,6 +434,16 @@ apply_model_profile() {
   local PROFILE_REASONING_PARSER=""
   local PROFILE_TOOL_CALL_PARSER=""
   local PROFILE_ENABLE_AUTO_TOOL_CHOICE=0
+  local PROFILE_ATTENTION_BACKEND=""
+  local PROFILE_REASONING_PARSER_PLUGIN=""
+  local PROFILE_CHAT_TEMPLATE=""
+  local PROFILE_TOKENIZER_MODE=""   # e.g. "mistral"
+  local PROFILE_CONFIG_FORMAT=""    # e.g. "mistral"
+  local PROFILE_LOAD_FORMAT=""      # e.g. "mistral"
+  local PROFILE_DOCKER_IMAGE=""     # override image (e.g. custom build with sm_120 kernels)
+  local PROFILE_BASH_WRAPPER=0     # 1 = wrap "vllm serve" in bash -lc (non-standard entrypoint)
+  local PROFILE_IPC_HOST=0         # 1 = use --ipc=host instead of --shm-size
+  local PROFILE_DOCKER_ENV=""      # space-separated KEY=VALUE pairs to inject into container
   local PROFILE_NOTES=""
   # shellcheck source=/dev/null
   source "${profile}"
@@ -436,6 +455,12 @@ apply_model_profile() {
   fi
 
   [[ -n "${PROFILE_NOTES}" ]] && info "Profil-Notiz: ${PROFILE_NOTES}"
+
+  # Effektives Docker-Image bestimmen (Profil kann Standard überschreiben)
+  EFFECTIVE_IMAGE="${PROFILE_DOCKER_IMAGE:-${IMAGE_REPO}:${VLLM_TAG}}"
+  BASH_WRAPPER="${PROFILE_BASH_WRAPPER}"
+  [[ "${EFFECTIVE_IMAGE}" != "${IMAGE_REPO}:${VLLM_TAG}" ]] && \
+    info "  Image   : ${EFFECTIVE_IMAGE} (custom)"
 
   # ── Argumente aufbauen ──────────────────────────────────────────────────
   MODEL_VLLM_ARGS=()
@@ -503,9 +528,20 @@ apply_model_profile() {
     MODEL_VLLM_ARGS+=(--hf-overrides "${PROFILE_HF_OVERRIDES}")
   fi
 
-  # reasoning-parser
+  # attention-backend
+  if [[ -n "${PROFILE_ATTENTION_BACKEND}" ]] && vllm_supports "--attention-backend"; then
+    MODEL_VLLM_ARGS+=(--attention-backend "${PROFILE_ATTENTION_BACKEND}")
+  fi
+
+  # reasoning-parser + optional plugin
   if [[ -n "${PROFILE_REASONING_PARSER}" ]] && vllm_supports "--reasoning-parser"; then
     MODEL_VLLM_ARGS+=(--reasoning-parser "${PROFILE_REASONING_PARSER}")
+  fi
+  if [[ -n "${PROFILE_REASONING_PARSER_PLUGIN}" ]] && vllm_supports "--reasoning-parser-plugin"; then
+    MODEL_VLLM_ARGS+=(--reasoning-parser-plugin "${PROFILE_REASONING_PARSER_PLUGIN}")
+  fi
+  if [[ -n "${PROFILE_CHAT_TEMPLATE}" ]] && vllm_supports "--chat-template"; then
+    MODEL_VLLM_ARGS+=(--chat-template "${PROFILE_CHAT_TEMPLATE}")
   fi
 
   # tool-call-parser + auto-tool-choice
@@ -523,9 +559,28 @@ apply_model_profile() {
     warn "Setze automatisch: --trust-remote-code (Modell benötigt custom code)"
   fi
 
-  # IPC host (optional, per env)
-  if (( DOCKER_IPC_HOST == 1 )); then
+  # tokenizer-mode / config-format / load-format (e.g. "mistral")
+  if [[ -n "${PROFILE_TOKENIZER_MODE}" ]] && vllm_supports "--tokenizer-mode"; then
+    MODEL_VLLM_ARGS+=(--tokenizer-mode "${PROFILE_TOKENIZER_MODE}")
+  fi
+  if [[ -n "${PROFILE_CONFIG_FORMAT}" ]] && vllm_supports "--config-format"; then
+    MODEL_VLLM_ARGS+=(--config-format "${PROFILE_CONFIG_FORMAT}")
+  fi
+  if [[ -n "${PROFILE_LOAD_FORMAT}" ]] && vllm_supports "--load-format"; then
+    MODEL_VLLM_ARGS+=(--load-format "${PROFILE_LOAD_FORMAT}")
+  fi
+
+  # IPC host: either from profile or global DOCKER_IPC_HOST env
+  # --ipc=host and --shm-size are mutually exclusive in Docker
+  if (( PROFILE_IPC_HOST == 1 || DOCKER_IPC_HOST == 1 )); then
     DOCKER_EXTRA_ARGS+=(--ipc host)
+  fi
+
+  # Extra Docker-Env-Variablen aus Profil (z.B. VLLM_NVFP4_GEMM_BACKEND=cutlass)
+  if [[ -n "${PROFILE_DOCKER_ENV}" ]]; then
+    for kv in ${PROFILE_DOCKER_ENV}; do
+      DOCKER_EXTRA_ENV+=(--env "${kv}")
+    done
   fi
 }
 
@@ -539,9 +594,9 @@ stage_run_vllm() {
     docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
   fi
 
-  # vLLM-Help cachen + Profil anwenden
-  fetch_vllm_help_once
+  # Profil anwenden (sets EFFECTIVE_IMAGE + BASH_WRAPPER), then cache help for that image
   apply_model_profile
+  fetch_vllm_help_once
 
   # Runtime-Cache für vLLM-interne Daten (Tokenizer-Cache etc.)
   local runtime_cache="${HOME}/.cache/vllm-runtime/${MODEL_LABEL}"
@@ -568,26 +623,47 @@ stage_run_vllm() {
   info "  Modell  : ${MODEL_DIR}  →  /hf_models/${MODEL_LABEL}"
   info "  Profile : ${MODEL_DIR}/vllm_profile.conf"
 
-  # CMD-Args für vllm serve (Entrypoint ist bereits "vllm serve")
-  local vllm_cmd=("${MODEL_HANDLE}")
-  [[ -n "${TRUST_REMOTE_CODE}" ]] && vllm_cmd+=("${TRUST_REMOTE_CODE}")
-  vllm_cmd+=("${MODEL_VLLM_ARGS[@]}")
+  # CMD-Args für vllm serve
+  local vllm_args=()
+  vllm_args+=("${MODEL_HANDLE}")
+  [[ -n "${TRUST_REMOTE_CODE}" ]] && vllm_args+=("${TRUST_REMOTE_CODE}")
+  vllm_args+=("${MODEL_VLLM_ARGS[@]}")
   if [[ -n "${VLLM_EXTRA_ARGS:-}" ]]; then
     read -ra _extra <<< "${VLLM_EXTRA_ARGS}"
-    vllm_cmd+=("${_extra[@]}")
+    vllm_args+=("${_extra[@]}")
   fi
+
+  # Bash-wrapper: für Images ohne "vllm serve"-Entrypoint (z.B. avarok/dgx-vllm-nvfp4-kernel)
+  local entrypoint_args=()
+  local vllm_cmd=()
+  if (( BASH_WRAPPER == 1 )); then
+    entrypoint_args=(--entrypoint "")
+    # shellcheck disable=SC2145
+    vllm_cmd=(/bin/bash -lc "vllm serve ${vllm_args[*]@Q}" )
+  else
+    vllm_cmd=("${vllm_args[@]}")
+  fi
+
+  # --shm-size und --ipc=host schließen sich gegenseitig aus
+  local shm_arg=()
+  local ipc_already=0
+  for a in "${DOCKER_EXTRA_ARGS[@]+"${DOCKER_EXTRA_ARGS[@]}"}"; do
+    [[ "${a}" == "host" || "${a}" == "--ipc" ]] && ipc_already=1
+  done
+  (( ipc_already == 0 )) && shm_arg=(--shm-size "${SHM_SIZE}")
 
   docker run -d \
     --name "${CONTAINER_NAME}" \
     --gpus all \
     -p "${HOST_PORT}:8000" \
-    --shm-size "${SHM_SIZE}" \
+    "${shm_arg[@]+"${shm_arg[@]}"}" \
     -v "${HF_MODELS_DIR}:/hf_models:ro" \
     -v "${runtime_cache}:/root/.cache/huggingface" \
+    "${entrypoint_args[@]+"${entrypoint_args[@]}"}" \
     "${DOCKER_EXTRA_ARGS[@]+"${DOCKER_EXTRA_ARGS[@]}"}" \
     "${DOCKER_ENV[@]}" \
     "${DOCKER_EXTRA_ENV[@]+"${DOCKER_EXTRA_ENV[@]}"}" \
-    "${IMAGE_REPO}:${VLLM_TAG}" \
+    "${EFFECTIVE_IMAGE}" \
     "${vllm_cmd[@]}"
 
   ok "vLLM gestartet."
