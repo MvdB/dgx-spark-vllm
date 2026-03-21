@@ -11,6 +11,12 @@ dgx-spark-vllm/
 ├── runner/                    # vLLM container runner
 │   ├── vllm_spark.sh          #   interactive model picker + server start
 │   └── vllm_spark_profiler.py #   auto-generates per-model vLLM profiles
+├── profiles/                  # Curated vllm_profile.conf for known-good models
+│   ├── mistralai--Mistral-Small-4-119B-2603-NVFP4/
+│   ├── nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4/
+│   └── ...                    #   one subdirectory per model
+├── custom/                    # Custom Docker images for models needing special kernels
+│   └── Dockerfile.mistral-small4  # avarok/dgx-vllm-nvfp4-kernel base + mistral_common
 └── repo-sync/                 # HuggingFace collection sync
     ├── hf_sync.py             #   sync script (Linux / macOS)
     ├── hf_sync.bat            #   Windows wrapper
@@ -56,9 +62,9 @@ No model data is downloaded at serve time – everything comes from the local st
 
 ### Profile files
 
-`vllm_spark_profiler.py` reads each model's `config.json` and writes a
-`vllm_profile.conf` alongside it.  The file is human-editable; run
-`--regen-profile` to reset it to auto-calculated values.
+`vllm_spark_profiler.py` reads each model's `config.json` (or `params.json` for
+Mistral native format) and writes a `vllm_profile.conf` alongside it.
+The file is human-editable; run `--regen-profile` to reset to auto-calculated values.
 
 ```bash
 # Regenerate profile for one model
@@ -68,7 +74,10 @@ No model data is downloaded at serve time – everything comes from the local st
 python3 vllm_spark_profiler.py ~/hf_models/mistralai--Ministral-3-8B-Instruct-2512 --force
 ```
 
-Key parameters tuned per model (targeting 85 % of 128 GB, 2–4 parallel users):
+Curated profiles for all tested models are in [`profiles/`](profiles/README.md) —
+copy the relevant subdirectory to `~/hf_models/<model>/` to skip auto-generation.
+
+Key parameters tuned per model (targeting 85–92 % of 128 GB, 2–4 parallel users):
 
 | Parameter | Description |
 |---|---|
@@ -81,6 +90,13 @@ Key parameters tuned per model (targeting 85 % of 128 GB, 2–4 parallel users):
 | `PROFILE_KV_CACHE_DTYPE` | KV-cache element type (default `fp8` to save memory) |
 | `PROFILE_REASONING_PARSER` | Structured reasoning output parser |
 | `PROFILE_TOOL_CALL_PARSER` | Tool-call output parser |
+| `PROFILE_ATTENTION_BACKEND` | Override attention backend (e.g. `TRITON_ATTN` for sm_120) |
+| `PROFILE_TOKENIZER_MODE` / `PROFILE_CONFIG_FORMAT` / `PROFILE_LOAD_FORMAT` | Mistral native format (`mistral`) |
+| `PROFILE_DOCKER_IMAGE` | Override Docker image (e.g. custom builds for sm_120 kernels) |
+| `PROFILE_BASH_WRAPPER` | Use `/bin/bash -lc "vllm serve …"` entrypoint for non-standard images |
+| `PROFILE_IPC_HOST` | Add `--ipc=host` to Docker run (required by some images) |
+| `PROFILE_DOCKER_ENV` | Space-separated `KEY=VALUE` env vars passed via `--env` |
+| `PROFILE_TRUST_REMOTE_CODE` | Pass `--trust-remote-code` to vLLM |
 
 ### Environment variables
 
@@ -88,7 +104,7 @@ Key parameters tuned per model (targeting 85 % of 128 GB, 2–4 parallel users):
 |---|---|---|
 | `HF_MODELS_DIR` | `~/hf_models` | Local model store |
 | `IMAGE_REPO` | `vllm/vllm-openai` | Docker image repository |
-| `DEFAULT_VLLM_TAG` | `v0.17.1` | Image tag |
+| `DEFAULT_VLLM_TAG` | `v0.18.0` | Image tag |
 | `CONTAINER_NAME` | `vllm-server` | Container name |
 | `HOST_PORT` | `8000` | Port exposed on the host |
 | `VLLM_EXTRA_ARGS` | _(empty)_ | Additional `vllm serve` flags |
@@ -97,12 +113,39 @@ Key parameters tuned per model (targeting 85 % of 128 GB, 2–4 parallel users):
 Override on the command line:
 
 ```bash
-DEFAULT_VLLM_TAG=v0.18.0 ./vllm_spark.sh --model qwen3.5-9b
+DEFAULT_VLLM_TAG=v0.19.0 ./vllm_spark.sh --model qwen3.5-9b
 ```
+
+### Custom Docker images
+
+Some models require a specialised image due to missing sm_120 kernel support in
+the standard `vllm/vllm-openai` releases.  Custom Dockerfiles live in [`custom/`](custom/).
+
+| Model | Image | Reason |
+|---|---|---|
+| `mistralai--Mistral-Small-4-119B-2603-NVFP4` | `spark-mistral-small4:v1` | `avarok/dgx-vllm-nvfp4-kernel` base with sm_120 NVFP4 kernels + `mistral_common` |
+
+Build before first use:
+
+```bash
+docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
+```
+
+The `PROFILE_DOCKER_IMAGE` field in `vllm_profile.conf` tells `vllm_spark.sh`
+which image to use for a given model.
 
 ### Tested models
 
-See the [runner README](runner/README.md) for information on tested models.
+See the [runner README](runner/README.md) for benchmark results.  Models confirmed
+working on DGX Spark (sm_120 / GB10, 128 GB) as of 2026-03-21:
+
+| Model | Notes |
+|---|---|
+| All `Qwen--Qwen3.5-*` | Standard image, all sizes |
+| All `mistralai--Ministral-3-*` | Standard image |
+| `mistralai--Devstral-Small-2-24B-Instruct-2512` | Standard image |
+| `mistralai--Mistral-Small-4-119B-2603-NVFP4` | Custom image `spark-mistral-small4:v1`, Mistral native format |
+| `nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | v0.18.0+, MARLIN backend + TRITON_ATTN required |
 
 ---
 
