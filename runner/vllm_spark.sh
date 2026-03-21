@@ -184,8 +184,9 @@ scan_hf_models() {
     [[ -d "${dir}" ]] || continue
     dir_name="$(basename "${dir}")"
 
-    # Nur Einträge mit config.json (echte Modell-Verzeichnisse)
-    [[ -f "${dir}/config.json" ]] || continue
+    # Nur Einträge mit config.json oder params.json (echte Modell-Verzeichnisse)
+    # params.json = Mistral native format (kein config.json)
+    [[ -f "${dir}/config.json" || -f "${dir}/params.json" ]] || continue
 
     # Profil generieren falls fehlend (still, nur stderr)
     ensure_profile "${dir}" 0 || true
@@ -217,7 +218,7 @@ stage_gen_profiles() {
   for dir in "${HF_MODELS_DIR}"/*/; do
     [[ -d "${dir}" ]] || continue
     dir_name="$(basename "${dir}")"
-    [[ -f "${dir}/config.json" ]] || continue
+    [[ -f "${dir}/config.json" || -f "${dir}/params.json" ]] || continue
 
     local profile="${dir}/vllm_profile.conf"
     if [[ -f "${profile}" ]]; then
@@ -362,8 +363,8 @@ stage_verify_model() {
     err "Modell-Verzeichnis nicht gefunden: ${MODEL_DIR}"
     exit 1
   }
-  [[ -f "${MODEL_DIR}/config.json" ]] || {
-    err "config.json fehlt in: ${MODEL_DIR}"
+  [[ -f "${MODEL_DIR}/config.json" || -f "${MODEL_DIR}/params.json" ]] || {
+    err "config.json / params.json fehlt in: ${MODEL_DIR}"
     exit 1
   }
 
