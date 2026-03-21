@@ -42,12 +42,28 @@ KNOWN_GOOD = {
     # TODO: avarok/dgx-vllm-nvfp4-kernel:v23 + VLLM_TEST_FORCE_FP8_MARLIN=1 noch nicht getestet
     #       (hat für Mistral-Small-4 funktioniert – könnte auch hier helfen)
     "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4": {
-        "PROFILE_VLLM_COMPATIBLE": 0,
+        "PROFILE_VLLM_COMPATIBLE":          1,
+        "PROFILE_GPU_MEM_UTIL":             "0.92",
+        "PROFILE_MAX_MODEL_LEN":            32768,
+        "PROFILE_MAX_NUM_SEQS":             4,
+        "PROFILE_MAX_NUM_BATCHED_TOKENS":   16384,
+        "PROFILE_KV_CACHE_DTYPE":           "fp8",
+        "PROFILE_TOOL_CALL_PARSER":         "qwen3_coder",
+        "PROFILE_ENABLE_AUTO_TOOL_CHOICE":  1,
+        "PROFILE_REASONING_PARSER":         "nemotron_v3",
+        "PROFILE_TRUST_REMOTE_CODE":        1,
+        "PROFILE_ATTENTION_BACKEND":        "TRITON_ATTN",
+        "PROFILE_DOCKER_IMAGE":             "vllm/vllm-openai:v0.18.0",
+        "PROFILE_DOCKER_ENV": (
+            "VLLM_NVFP4_GEMM_BACKEND=marlin"
+            " VLLM_USE_FLASHINFER_MOE_FP4=0"
+            " VLLM_TEST_FORCE_FP8_MARLIN=1"
+            " VLLM_ENGINE_CORE_STARTUP_TIMEOUT=300"
+        ),
         "PROFILE_NOTES": (
-            "INKOMPATIBEL mit vllm/vllm-openai:v0.17.1 auf sm_120. "
-            "MARLIN erzeugt NaN-Logits; FLASHINFER/VLLM_CUTLASS crashen. "
-            "TODO: avarok/dgx-vllm-nvfp4-kernel:v23 + VLLM_TEST_FORCE_FP8_MARLIN=1 testen "
-            "(hat für Mistral-Small-4 NVFP4 auf DGX Spark funktioniert)."
+            "Bestätigt funktionsfähig auf DGX Spark (sm_120) mit vllm/vllm-openai:v0.18.0. "
+            "Benötigt MARLIN-Backend (FLASHINFER_CUTLASS crasht auf sm_120). "
+            "v0.17.1 war inkompatibel (NaN-Logits mit MARLIN, crash mit anderen Backends)."
         ),
     },
     "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4": {
