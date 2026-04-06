@@ -10,14 +10,18 @@ from typing import Any
 import yaml
 
 
+def _default_spark_path() -> str:
+    return os.environ.get("VLLM_SPARK_PATH", str(Path.home() / "dgx-spark-vllm"))
+
+
 @dataclass
 class EndpointConfig:
     host: str
     port: int = 8000
     startup_timeout: int = 600
-    vllm_spark_path: str = "/opt/dgx-spark-vllm"
-    ssh_user: str = "root"
-    hf_models_dir: str = ""   # leer = vllm_spark.sh-Default (~/ hf_models)
+    vllm_spark_path: str = ""   # leer → _default_spark_path()
+    ssh_user: str = ""          # leer → $USER
+    hf_models_dir: str = ""     # leer → $HF_MODELS_DIR oder ~/hf_models
 
     @property
     def base_url(self) -> str:
@@ -103,29 +107,35 @@ class TestplanConfig:
             raw: dict[str, Any] = yaml.safe_load(f)
 
         infra = raw["infrastructure"]
+        global_ssh_user = infra.get("ssh_user", os.environ.get("USER", ""))
+        global_spark_path = infra.get("vllm_spark_path", _default_spark_path())
+
+        def _expand(s: str) -> str:
+            """Expandiere $USER und ~ in Pfaden."""
+            return os.path.expanduser(os.path.expandvars(s)) if s else s
 
         jc = infra["judge"]
         judge = JudgeConfig(
             host=jc["host"],
-            port=jc["port"],
+            port=jc.get("port", 8000),
             model=jc["model"],
             profile=jc.get("profile", ""),
-            vllm_spark_path=jc["vllm_spark_path"],
-            startup_timeout=jc["startup_timeout"],
-            persistent=jc["persistent"],
-            ssh_user=jc.get("ssh_user", infra.get("ssh_user", "root")),
-            hf_models_dir=jc.get("hf_models_dir", ""),
+            vllm_spark_path=_expand(jc.get("vllm_spark_path", global_spark_path)),
+            startup_timeout=jc.get("startup_timeout", 600),
+            persistent=jc.get("persistent", True),
+            ssh_user=jc.get("ssh_user", global_ssh_user),
+            hf_models_dir=_expand(jc.get("hf_models_dir", os.environ.get("HF_MODELS_DIR", ""))),
         )
 
         tc = infra["target"]
         target = TargetConfig(
             host=tc["host"],
-            port=tc["port"],
-            vllm_spark_path=tc["vllm_spark_path"],
-            startup_timeout=tc["startup_timeout"],
-            cooldown_seconds=tc["cooldown_seconds"],
-            ssh_user=tc.get("ssh_user", infra.get("ssh_user", "root")),
-            hf_models_dir=tc.get("hf_models_dir", ""),
+            port=tc.get("port", 8000),
+            vllm_spark_path=_expand(tc.get("vllm_spark_path", global_spark_path)),
+            startup_timeout=tc.get("startup_timeout", 600),
+            cooldown_seconds=tc.get("cooldown_seconds", 30),
+            ssh_user=tc.get("ssh_user", global_ssh_user),
+            hf_models_dir=_expand(tc.get("hf_models_dir", os.environ.get("HF_MODELS_DIR", ""))),
         )
 
         models = [
