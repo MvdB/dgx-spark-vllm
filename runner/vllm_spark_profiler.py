@@ -89,6 +89,89 @@ KNOWN_GOOD = {
             "max_model_len=32768 mit evtl. KV-Eviction für lange Kontexte."
         ),
     },
+    # ── Gemma 4 (google) ──────────────────────────────────────────────────────
+    # Alle Varianten: vllm/vllm-openai:v0.19.0+ erforderlich (Gemma4ForConditionalGeneration).
+    # Architektur: Interleaved Sliding/Global Attention (layer_types: 5 sliding + 1 full).
+    # KV-Budget-Berechnung: nur Full-Attention-Layer skalieren linear mit Kontext.
+    # Sliding-Layer sind durch die Fenstergröße begrenzt und haben keinen
+    # kontextlängenabhängigen KV-Bedarf.
+    #
+    # 26B A4B MoE · 30 Layer (5 full, 25 sliding) · BF16 ~52 GB
+    # Global-KV pro Token: 5 × 2 heads × 512 dim × 2 (K+V) × 1 Byte = 10.240 Byte
+    # Bei max_model_len=131072, max_num_seqs=2: ~2,6 GB KV → sehr großzügig.
+    "google--gemma-4-26B-A4B-it": {
+        "PROFILE_VLLM_COMPATIBLE":         1,
+        "PROFILE_GPU_MEM_UTIL":            "0.88",
+        "PROFILE_MAX_MODEL_LEN":           131072,
+        "PROFILE_MAX_NUM_SEQS":            2,
+        "PROFILE_KV_CACHE_DTYPE":          "fp8",
+        "PROFILE_ENFORCE_EAGER":           1,
+        "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_NOTES": (
+            "Gemma 4 26B A4B MoE. 30 Layer (5 full, 25 sliding), sliding_window=1024. "
+            "BF16 ~52 GB. MoE (128 Experten, top-8) + Interleaved Attention → enforce_eager. "
+            "Nur Full-Attention-Layer skalieren mit Kontext: 5 × 2 × 512 × 2 = 10.240 B/Token. "
+            "Bei 2 Seq. und 131072 Token nur ~2,6 GB KV-Cache. "
+            "Benötigt vllm/vllm-openai:v0.19.0+."
+        ),
+    },
+    # 31B Dense · 60 Layer (10 full, 50 sliding) · BF16 ~62 GB
+    # Global-KV pro Token: 10 × 4 heads × 512 dim × 2 (K+V) × 1 Byte = 40.960 Byte
+    # Bei max_model_len=131072, max_num_seqs=2: ~10,2 GB KV → sicher bei ~48 GB Budget.
+    "google--gemma-4-31B-it": {
+        "PROFILE_VLLM_COMPATIBLE":         1,
+        "PROFILE_GPU_MEM_UTIL":            "0.88",
+        "PROFILE_MAX_MODEL_LEN":           131072,
+        "PROFILE_MAX_NUM_SEQS":            2,
+        "PROFILE_KV_CACHE_DTYPE":          "fp8",
+        "PROFILE_ENFORCE_EAGER":           1,
+        "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_NOTES": (
+            "Gemma 4 31B Dense. 60 Layer (10 full, 50 sliding), sliding_window=1024. "
+            "BF16 ~62 GB. Interleaved Attention → enforce_eager. "
+            "Nur Full-Attention-Layer skalieren mit Kontext: 10 × 4 × 512 × 2 = 40.960 B/Token. "
+            "Bei 2 Seq. und 131072 Token ~10,2 GB KV-Cache (Budget ~48 GB). "
+            "Auf 262144 erhöhbar (~20 GB KV), dann max_num_seqs=1 empfohlen. "
+            "Benötigt vllm/vllm-openai:v0.19.0+."
+        ),
+    },
+    # E2B · 35 Layer (7 full, 28 sliding) · BF16 ~4 GB (+ Audio-Encoder)
+    # Global-KV pro Token: 7 × 1 head × 512 dim × 2 (K+V) × 1 Byte = 7.168 Byte
+    # Bei max_model_len=131072, max_num_seqs=4: ~3,5 GB KV → sehr großzügig.
+    # Audio-Input: encoder vorhanden, vLLM-Audio-Support für Gemma 4 ungetestet.
+    "google--gemma-4-E4B-it": {
+        "PROFILE_VLLM_COMPATIBLE":         1,
+        "PROFILE_GPU_MEM_UTIL":            "0.80",
+        "PROFILE_MAX_MODEL_LEN":           131072,
+        "PROFILE_MAX_NUM_SEQS":            4,
+        "PROFILE_KV_CACHE_DTYPE":          "fp8",
+        "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_NOTES": (
+            "Gemma 4 E4B. 42 Layer (7 full, 35 sliding), sliding_window=512. "
+            "BF16 ~8 GB + Audio/Vision-Encoder. "
+            "Nur Full-Attention-Layer skalieren mit Kontext: 7 × 2 × 512 × 2 = 14.336 B/Token. "
+            "Bei 4 Seq. und 131072 Token ~7 GB KV-Cache. "
+            "Audio-Input: encoder vorhanden, vLLM-Support ungetestet – Text/Vision empfohlen. "
+            "Benötigt vllm/vllm-openai:v0.19.0+."
+        ),
+    },
+    "google--gemma-4-E2B-it": {
+        "PROFILE_VLLM_COMPATIBLE":         1,
+        "PROFILE_GPU_MEM_UTIL":            "0.80",
+        "PROFILE_MAX_MODEL_LEN":           131072,
+        "PROFILE_MAX_NUM_SEQS":            4,
+        "PROFILE_KV_CACHE_DTYPE":          "fp8",
+        "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_NOTES": (
+            "Gemma 4 E2B. 35 Layer (7 full, 28 sliding), sliding_window=512. "
+            "BF16 ~4 GB + Audio/Vision-Encoder. "
+            "Nur Full-Attention-Layer skalieren mit Kontext: 7 × 1 × 512 × 2 = 7.168 B/Token. "
+            "Bei 4 Seq. und 131072 Token ~3,5 GB KV-Cache. "
+            "Audio-Input: encoder vorhanden, vLLM-Support ungetestet – Text/Vision empfohlen. "
+            "Benötigt vllm/vllm-openai:v0.19.0+."
+        ),
+    },
+    # ── Mistral-Small-4 119B NVFP4 ───────────────────────────────────────────
     # Mistral-Small-4 119B NVFP4: benötigt avarok/dgx-vllm-nvfp4-kernel:v23
     # (Community-Image mit sm_120-kompatiblen NVFP4-Kerneln + mistral_common).
     # Bau: docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
@@ -155,6 +238,13 @@ ARCH_HINTS = {
     },
     "GptOssForCausalLM": {
         "enforce_eager":     1,
+    },
+    # Gemma 4: multimodale Familie (Text + Vision, E2B/E4B zusätzlich Audio).
+    # Interleaved Sliding/Global Attention → enforce_eager, reasoning_parser.
+    # MoE-Varianten (26B A4B) werden zusätzlich über enable_moe_block erkannt.
+    "Gemma4ForConditionalGeneration": {
+        "enforce_eager":           1,
+        "reasoning_parser":        "gemma4",
     },
 }
 
@@ -232,11 +322,30 @@ def estimate_model_gb(dir_name: str, bpp: float) -> float | None:
 
 
 def kv_bytes_per_token_fp8(text_cfg: dict) -> int:
-    """KV-Cache-Bytes pro Token bei FP8-KV (1 Byte/Element)."""
+    """
+    KV-Cache-Bytes pro Token bei FP8-KV (1 Byte/Element).
+
+    Für Modelle mit Interleaved Sliding/Global Attention (z.B. Gemma 4):
+    Nur Full-Attention-Layer skalieren linear mit der Kontextlänge.
+    Sliding-Window-Layer sind durch die Fenstergröße begrenzt – ihr
+    KV-Bedarf wächst NICHT mit max_model_len und wird hier ignoriert
+    (der fixe Overhead ist im Vergleich vernachlässigbar).
+    """
     layers   = text_cfg.get("num_hidden_layers", 32)
     kv_heads = text_cfg.get("num_key_value_heads",
                             text_cfg.get("num_attention_heads", 8))
     head_dim = text_cfg.get("head_dim", 128)
+
+    # Interleaved Attention (Gemma 4): layer_types listet "full_attention" /
+    # "sliding_attention" pro Layer. Nur Full-Attention-Layer skalieren
+    # linear mit dem Kontext. Globale Layer haben ggf. eigene KV-Head/Dim-Werte.
+    layer_types = text_cfg.get("layer_types")
+    if layer_types:
+        n_full          = sum(1 for t in layer_types if t == "full_attention")
+        global_kv_heads = text_cfg.get("num_global_key_value_heads") or kv_heads
+        global_head_dim = text_cfg.get("global_head_dim") or head_dim
+        return int(n_full * 2 * global_kv_heads * global_head_dim * 1)
+
     return int(layers * 2 * kv_heads * head_dim * 1)  # FP8 = 1 Byte
 
 
@@ -328,7 +437,10 @@ def compute_profile(model_dir: str) -> dict:
     gpu_mem_util = "0.85"
 
     # ── enforce_eager ─────────────────────────────────────────────────────
-    is_moe        = "Moe" in arch or "moe" in cfg.get("model_type", "")
+    # is_moe: klassische Namenskonvention ("Moe"/"moe") ODER Gemma-4-Style
+    # (text_config.enable_moe_block = true).
+    is_moe        = ("Moe" in arch or "moe" in cfg.get("model_type", "")
+                     or bool(text_cfg.get("enable_moe_block")))
     enforce_eager = 1 if (is_moe or is_large or hints.get("enforce_eager", 0)) else 0
 
     # ── trust_remote_code ─────────────────────────────────────────────────

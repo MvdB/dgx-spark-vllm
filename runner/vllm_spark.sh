@@ -68,7 +68,7 @@ PROFILER_SCRIPT="$(dirname "$(realpath "$0")")/vllm_spark_profiler.py"
 
 # Offizielles vLLM-Image (Docker Hub). Tag = feste Version; kein Auto-Update.
 IMAGE_REPO="${IMAGE_REPO:-vllm/vllm-openai}"
-DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-v0.17.1}"
+DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-v0.19.0}"
 
 CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
 HOST_PORT="${HOST_PORT:-8000}"
