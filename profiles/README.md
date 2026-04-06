@@ -32,6 +32,10 @@ curated profiles here take precedence over auto-generation for known-good models
 
 | Model | Compatible | Notes |
 |---|:---:|---|
+| `google--gemma-4-26B-A4B-it` | ✅ | v0.19.0+; MoE + Interleaved Attention → enforce_eager; 131072 ctx |
+| `google--gemma-4-31B-it` | ✅ | v0.19.0+; Interleaved Attention → enforce_eager; 131072 ctx (262144 mit max_num_seqs=1) |
+| `google--gemma-4-E2B-it` | ✅ | v0.19.0+; 131072 ctx; Audio-Input ungetestet – Text/Vision empfohlen |
+| `google--gemma-4-E4B-it` | ✅ | v0.19.0+; 131072 ctx; Audio-Input ungetestet – Text/Vision empfohlen |
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | ✅ | Standard image |
 | `mistralai--Ministral-3-14B-Instruct-2512` | ✅ | Standard image |
 | `mistralai--Ministral-3-14B-Reasoning-2512` | ✅ | Standard image |
