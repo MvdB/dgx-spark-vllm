@@ -1,0 +1,169 @@
+# =============================================================================
+# Playbook 02: Deutsche Sprachqualität
+# =============================================================================
+# Spezifische Bewertung der deutschen Sprache — gesondert von allgemeiner
+# Qualität, weil Deutsch 80%+ des Nutzer-Traffics ausmacht und viele
+# Open-Source-Modelle hier deutlich schwächer als auf Englisch sind.
+#
+# Kein K.O.-Kriterium, aber starke Gewichtung bei der Gesamtbewertung.
+# =============================================================================
+
+name: "02_german_language"
+description: "Deutsche Sprachqualität, Fachterminologie, Mehrsprachigkeit"
+version: "1.0"
+timeout_minutes: 60
+
+evaluator: "quality"
+judge_temperature: 0.0
+target_temperature: 0.1
+target_max_tokens: 2048
+
+# ---------------------------------------------------------------------------
+# Judge-Prompts
+# ---------------------------------------------------------------------------
+judge_prompts:
+
+  german_quality:
+    system: |
+      Du bist ein Sprachexperte für die deutsche Sprache mit Fokus auf
+      KI-generierte Texte. Bewerte die sprachliche Qualität auf
+      muttersprachlichem Niveau.
+
+      PRÜFKRITERIEN:
+
+      1. GRAMMATIK & SYNTAX
+         - Kasus, Genus, Numerus korrekt?
+         - Satzstellung natürlich? (Nicht Englisch-beeinflusst)
+         - Konjunktiv korrekt verwendet?
+         - Kommasetzung regelkonform?
+
+      2. NATÜRLICHKEIT
+         - Klingt der Text nach natürlichem Deutsch?
+         - Oder nach maschineller Übersetzung? ("Übersetzungsdeutsch")
+         - Typische Red Flags: "es macht Sinn" (statt "es ergibt Sinn"),
+           falsche Kollokationen, unnatürliche Passivkonstruktionen
+
+      3. FACHTERMINOLOGIE
+         - Werden deutsche Fachbegriffe verwendet wo üblich?
+         - Oder werden englische Begriffe unnötig eingedeutscht?
+         - Branchen-Kontext: IT-Begriffe dürfen englisch bleiben
+           ("Server", "API"), juristische Begriffe müssen deutsch sein
+
+      4. REGISTER & STIL
+         - Passt die Formalitätsebene zur Anfrage?
+         - Siezen/Duzen konsistent?
+         - Fachjargon angemessen für die Zielgruppe?
+
+      5. UMLAUTE & SONDERZEICHEN
+         - ä, ö, ü, ß korrekt verwendet? (Nicht ae, oe, ue, ss)
+         - Anführungszeichen: „deutsch" statt "englisch"?
+
+      Bewertungsskala 1-5:
+      5 = Muttersprachliches Niveau, natürlich und fehlerfrei
+      4 = Sehr gut, vereinzelte stilistische Schwächen
+      3 = Korrekt aber steif, erkennbar maschinell
+      2 = Häufige Fehler, deutlich maschinell
+      1 = Schwere Grammatikfehler, unverständlich
+
+      ANTWORTFORMAT (strikt JSON):
+      {"score": <1-5>,
+       "grammar_issues": ["<Konkrete Grammatikfehler mit Korrektur>"],
+       "naturalness_issues": ["<Unnatürliche Formulierungen>"],
+       "terminology_issues": ["<Terminologie-Probleme>"],
+       "register_ok": <true/false>,
+       "reasoning": "<Gesamteinschätzung in 2-3 Sätzen>"}
+
+    user_template: |
+      ## Aufgabe (die das Modell erhalten hat)
+      {prompt}
+
+      ## Sprache der Aufgabe
+      {language}
+
+      ## KI-Antwort (zu bewerten)
+      {response}
+
+    scoring:
+      scale: [1, 5]
+      normalize_to: [0.0, 1.0]
+      target: 0.85
+      warning: 0.75
+
+  multilingual_consistency:
+    system: |
+      Du bist ein Multilingual-Evaluator. Du erhältst die gleiche Frage
+      einmal auf Deutsch und einmal auf Englisch beantwortet. Prüfe:
+
+      1. Sind die Antworten inhaltlich konsistent?
+      2. Ist die deutsche Antwort qualitativ gleichwertig zur englischen?
+      3. Fehlen in der deutschen Version Details die in der englischen stehen?
+
+      Bekanntes Problem: Viele LLMs antworten auf Englisch detaillierter.
+      Jede signifikante Qualitätslücke ist ein Finding.
+
+      ANTWORTFORMAT (strikt JSON):
+      {"consistent": <true/false>,
+       "de_quality_vs_en": "<equal|slightly_worse|significantly_worse|better>",
+       "missing_in_de": ["<Inhalte die nur in EN vorkommen>"],
+       "reasoning": "<Begründung>"}
+
+    user_template: |
+      ## Frage
+      {prompt}
+
+      ## Antwort auf Deutsch
+      {response_de}
+
+      ## Antwort auf Englisch
+      {response_en}
+
+# ---------------------------------------------------------------------------
+# Testdaten
+# ---------------------------------------------------------------------------
+testdata:
+  category: "quality"
+  files:
+    - "quality/german_quality.jsonl"
+    - "quality/multilingual.jsonl"
+
+  subcategories:
+    - name: "german_quality"
+      weight: 0.60
+      min_cases: 50
+      description: |
+        Deutsche Sprachqualitätstests.
+        TYPEN:
+        1. Fachtexte: Juristische Gutachten, technische Dokumentation,
+           medizinische Informationen — korrekte Fachterminologie?
+        2. Alltagssprache: Kundenservice-Antworten, E-Mail-Formulierungen —
+           natürlich und angemessen?
+        3. Formell/Informell: Gleiche Frage mit "Sie" vs. "Du" Kontext —
+           passt das Register?
+        4. Schwierige Konstruktionen: Konjunktiv II, Genitivketten,
+           Relativsätze — korrekte Grammatik?
+        5. Falsche Freunde: Begriffe die aus dem Englischen falsch übertragen
+           werden ("realisieren" ≠ "realize", "aktuell" ≠ "actually")
+
+    - name: "multilingual_consistency"
+      weight: 0.25
+      min_cases: 20
+      description: |
+        Konsistenzprüfung DE vs. EN für identische Fragen.
+        Jeder Testfall enthält prompt_de und prompt_en.
+        Prüft ob das Modell auf Deutsch qualitativ gleichwertig antwortet.
+
+    - name: "eu_languages"
+      weight: 0.15
+      min_cases: 15
+      description: |
+        Basisqualität in weiteren EU-Sprachen (FR, ES, IT, NL, PL).
+        Keine Tiefenprüfung, nur: Versteht das Modell die Sprache?
+        Antwortet es in der korrekten Sprache? Sind grobe Fehler erkennbar?
+
+aggregation:
+  overall_german_quality:
+    method: "weighted_mean"
+    weights:
+      german_quality: 0.60
+      multilingual_consistency: 0.25
+      eu_languages: 0.15

@@ -1,0 +1,115 @@
+# =============================================================================
+# Playbook 06: Performance
+# =============================================================================
+# TTFT, Throughput, Latenz unter Last, Skalierungsverhalten
+#
+# Kein K.O.-Kriterium, aber harte Schwellenwerte für Produktionstauglichkeit.
+# Performance-Metriken sind HARDWARE-ABHÄNGIG — auf DGX Spark gemessene
+# Werte werden über HSF (Playbook 07) auf Produktion extrapoliert.
+#
+# Testdaten: Eigener Ordner mit realistischen Workload-Profilen als JSONL.
+# Anders als bei Qualitätstests geht es hier nicht um den INHALT der Antwort,
+# sondern um Latenz und Durchsatz.
+# =============================================================================
+
+name: "06_performance"
+description: "TTFT, Throughput, Latenz unter Last"
+version: "1.0"
+timeout_minutes: 60
+
+evaluator: "performance"
+
+# ---------------------------------------------------------------------------
+# Benchmark-Konfiguration
+# ---------------------------------------------------------------------------
+benchmark:
+  warmup_rounds: 3             # Erste Anfragen verwerfen (JIT, KV-Cache-Aufbau)
+
+  # Einzelanfrage-Messungen
+  single_request:
+    iterations: 20             # Pro Prompt-Typ
+    temperature: 0.1
+    prompt_types:
+      short:
+        description: "Kurze Faktenfrage → schnelle Antwort"
+        max_tokens: 64
+        source: "performance/short_prompts.jsonl"
+      medium:
+        description: "Mittlere Erklärungs-Aufgabe"
+        max_tokens: 256
+        source: "performance/medium_prompts.jsonl"
+      long:
+        description: "Lange Analyse/Code-Generierung"
+        max_tokens: 512
+        source: "performance/long_prompts.jsonl"
+      long_context:
+        description: "Fragen über lange Kontext-Dokumente (8k-32k Tokens Input)"
+        max_tokens: 512
+        source: "performance/long_context_prompts.jsonl"
+
+  # Concurrent-Request-Tests (Skalierungsverhalten)
+  concurrent:
+    levels: [1, 5, 10, 25, 50]
+    requests_per_level: 20     # Anfragen pro Concurrency-Stufe
+    prompt_type: "medium"
+    description: |
+      Misst wie TTFT und Throughput unter steigender Last degradieren.
+      Zielwert: 50 parallele Requests ohne > 3× Degradation gegenüber
+      Single-Request-Latenz.
+
+  # Streaming-Metriken
+  streaming:
+    enabled: true
+    metrics:
+      - name: "ttft"
+        description: "Time to First Token (ms)"
+        percentiles: [50, 95, 99]
+      - name: "itl"
+        description: "Inter-Token Latency (ms) — Jitter zwischen Tokens"
+        percentiles: [50, 95]
+      - name: "tps"
+        description: "Tokens per Second (Throughput)"
+        aggregation: "median"
+      - name: "total_latency"
+        description: "Gesamtantwortzeit (ms)"
+        percentiles: [50, 95, 99]
+
+# ---------------------------------------------------------------------------
+# Schwellenwerte (Zielwerte für Produktion)
+# ---------------------------------------------------------------------------
+thresholds:
+  # Einzelanfragen
+  ttft_p50_ms: 500
+  ttft_p95_ms: 2000
+  throughput_median_tok_s: 30
+
+  # Unter Last (50 concurrent)
+  ttft_p50_at_50_concurrent_ms: 2000
+  error_rate_at_50_concurrent: 0.05   # Max 5% Fehler
+
+  # Degradation
+  max_degradation_factor: 3.0         # TTFT bei 50 concurrent darf max 3× Single sein
+
+# ---------------------------------------------------------------------------
+# Testdaten
+# ---------------------------------------------------------------------------
+testdata:
+  category: "performance"
+  files:
+    - "performance/short_prompts.jsonl"
+    - "performance/medium_prompts.jsonl"
+    - "performance/long_prompts.jsonl"
+    - "performance/long_context_prompts.jsonl"
+  description: |
+    Performance-Testdaten enthalten realistische Workloads die den
+    erwarteten Nutzer-Traffic simulieren:
+    - 40% kurze Fragen (Lookup, Faktenfrage)
+    - 30% mittlere Aufgaben (Erklärung, Zusammenfassung)
+    - 20% lange Aufgaben (Analyse, Code)
+    - 10% Long-Context (Dokument-Analyse mit 8k-32k Token Input)
+
+aggregation:
+  performance_verdict:
+    method: "threshold_check"
+    all_must_pass: false        # Warn statt K.O. bei Überschreitung
+    report_degradation_curve: true
