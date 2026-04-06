@@ -15,7 +15,7 @@ infrastructure:
     # DGX Spark A — statischer Judge, läuft während gesamtem Testlauf
     host: "dgx-spark-a"           # Hostname oder IP
     port: 8000
-    model: "mistralai/Mistral-Small-24B-Instruct-2501"
+    model: "mistralai/Magistral-Small-2509"
     vllm_spark_path: "/opt/dgx-spark-vllm"   # Pfad zum geklonten Repo
     startup_timeout: 600          # Sekunden bis Health-Check
     # Judge bleibt zwischen Target-Modellen laufen (kein Neustart)
@@ -52,58 +52,74 @@ infrastructure:
 # ---------------------------------------------------------------------------
 models:
   # --- Kohorte A: aktuell in Evaluation ---
-  - name: "Mistral-Small-24B"
-    profile: "mistralai--Mistral-Small-24B-Instruct-2501"
+  - name: "Devstral-Small-24B"
+    profile: "mistralai--Devstral-Small-2-24B-Instruct-2512"
     machine: "machine_a"
     tags: ["cohort_a", "dense", "instruct"]
     active: true
 
   - name: "Ministral3-14B"
-    profile: "mistralai--Ministral-3-14B-Instruct-2507"
+    profile: "mistralai--Ministral-3-14B-Instruct-2512"
     machine: "machine_a"
     tags: ["cohort_a", "dense", "instruct"]
     active: true
 
-  - name: "gpt-oss-120b"
-    profile: "openai--gpt-oss-120b"
-    machine: "machine_b"
-    tags: ["cohort_a", "moe", "large"]
+  - name: "gpt-oss-20b"
+    profile: "openai--gpt-oss-20b"
+    machine: "machine_a"
+    tags: ["cohort_a", "dense", "instruct"]
     active: true
+    notes: "gpt-oss-120b ist aktuell inkompatibel (AttributeError), daher 20b-Variante"
 
   # --- Kohorte B: geplant ---
   - name: "Qwen3.5-122B-A10B"
-    profile: "Qwen--Qwen3.5-122B-A10B"
+    profile: "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4"
     machine: "machine_b"
-    tags: ["cohort_b", "moe", "multimodal"]
+    tags: ["cohort_b", "moe", "large"]
     active: true
 
   - name: "Nemotron-3-Super"
-    profile: "nvidia--Nemotron-3-Super-49B-v1"
+    profile: "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
     machine: "machine_b"
     tags: ["cohort_b", "mamba_moe", "long_context"]
     active: true
+    notes: "v0.18.0+, MARLIN + TRITON_ATTN; Startup 5-10 Min auf DGX Spark"
 
   - name: "Mistral-Small-4"
-    profile: "mistralai--Mistral-Small-4-Instruct-2507"
+    profile: "mistralai--Mistral-Small-4-119B-2603-NVFP4"
     machine: "machine_b"
     tags: ["cohort_b", "moe", "custom_vllm"]
     active: true
-    notes: "Benötigt Custom-vLLM-Fork (mistralllm/vllm-ms4)"
+    notes: "Custom image spark-mistral-small4:v1 erforderlich (docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .)"
 
-  # --- Zusätzliche aktuelle Modelle ---
-  - name: "Gemma-4-27B"
-    profile: "google--gemma-4-27b-it"
-    machine: "machine_a"
-    tags: ["extra", "dense", "instruct"]
-    active: false   # Profil noch nicht angelegt
-    notes: "Profil muss via vllm_spark_profiler.py generiert werden"
-
-  - name: "Gemma-4-12B"
-    profile: "google--gemma-4-12b-it"
+  # --- Gemma 4 Modelle (neu, v0.19.0+) ---
+  - name: "Gemma-4-31B"
+    profile: "google--gemma-4-31B-it"
     machine: "machine_a"
     tags: ["extra", "dense", "instruct"]
     active: false
-    notes: "Profil muss via vllm_spark_profiler.py generiert werden"
+    notes: "v0.19.0+; Interleaved Attention → enforce_eager; 131072 ctx"
+
+  - name: "Gemma-4-26B-A4B"
+    profile: "google--gemma-4-26B-A4B-it"
+    machine: "machine_a"
+    tags: ["extra", "moe", "instruct"]
+    active: false
+    notes: "v0.19.0+; MoE + Interleaved Attention → enforce_eager"
+
+  - name: "Gemma-4-E4B"
+    profile: "google--gemma-4-E4B-it"
+    machine: "machine_a"
+    tags: ["extra", "dense", "multimodal"]
+    active: false
+    notes: "v0.19.0+; Audio-Input ungetestet — Text/Vision empfohlen"
+
+  - name: "Gemma-4-E2B"
+    profile: "google--gemma-4-E2B-it"
+    machine: "machine_a"
+    tags: ["extra", "dense", "multimodal"]
+    active: false
+    notes: "v0.19.0+; Audio-Input ungetestet — Text/Vision empfohlen"
 
 # ---------------------------------------------------------------------------
 # Testdaten

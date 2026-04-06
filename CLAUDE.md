@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo does
 
-Tooling for running vLLM on the **NVIDIA DGX Spark** (GB10 SoC, sm_120, 128 GB unified memory). Two independent subsystems:
+Tooling for running vLLM on the **NVIDIA DGX Spark** (GB10 SoC, sm_120, 128 GB unified memory). Three subsystems:
 
 1. **`runner/`** – Bash + Python scripts that start a vLLM Docker container for any local model, generating and loading per-model parameter profiles.
-2. **`repo-sync/`** – Python script that mirrors a named HuggingFace collection to `~/hf_models/` using commit-SHA-based update detection.
+2. **`testplan/`** – Automated LLM evaluation framework. Two-Spark setup: Spark A runs a static judge (Magistral-Small-2509), Spark B rotates target models. 7 playbooks (quality, German, bias, security, code, performance, HSF). Generates per-model reports + cross-model dashboard.
+3. **`repo-sync/`** – Python script that mirrors a named HuggingFace collection to `~/hf_models/` using commit-SHA-based update detection.
 
 ## Common commands
 
@@ -38,6 +39,24 @@ docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
 
 # Sync HuggingFace collection to ~/hf_models/
 cd repo-sync && source .venv/bin/activate && python hf_sync.py
+
+# --- testplan ---
+# Dry run (show config, don't execute)
+cd testplan && python orchestrator.py --dry-run
+
+# Full test run (all active models)
+python orchestrator.py
+
+# Test specific models or cohorts
+python orchestrator.py --models "Magistral-Small-2509,Ministral3-14B"
+python orchestrator.py --tags cohort_a
+python orchestrator.py --playbooks 01_quality,04_security
+
+# Test against already-running endpoint
+python orchestrator.py --endpoint http://localhost:8000
+
+# Generate demo report with simulated data
+python generate_demo_report.py
 ```
 
 ## Architecture
@@ -78,6 +97,25 @@ Some models need kernels not in `vllm/vllm-openai` (especially sm_120 NVFP4). Cu
 ### Curated profiles in `profiles/`
 
 `profiles/<model-dir>/vllm_profile.conf` contains hand-validated settings. Copy to `~/hf_models/<model>/` to bypass auto-generation. The auto-generator's `KNOWN_GOOD` dict contains the same data as Python source.
+
+### `testplan/` architecture
+
+Central config: `testplan/config/testplan.yaml` — defines infrastructure (judge/target hosts), all model definitions with `profile` names matching `profiles/` directories, K.O. thresholds, quality targets, and playbook definitions.
+
+**Orchestrator flow** (`orchestrator.py`):
+1. Start judge model on Spark A (persistent across all targets)
+2. For each active model: start on Spark B → run enabled playbooks → check K.O. criteria → stop model → cooldown
+3. Generate consolidated reports (JSON/HTML/CSV) + cross-model dashboard
+
+**Evaluators** (`evaluators/`): Each evaluator queries the target model, then uses the judge model (LLM-as-Judge pattern) to score the response. Exception: `performance.py` uses async streaming (aiohttp) for TTFT measurement, no judge needed.
+
+**Playbooks** (`playbooks/*.yaml`): Contain German judge system prompts, Jinja2 user templates, scoring rules, K.O. criteria, and testdata subcategory mappings.
+
+**Testdata** (`testdata/*.jsonl`): JSONL format with schema in `testdata/schema.json`. 76 test cases across 7 categories. Expected answers support types: exact, contains, regex, semantic, code_exec, judge.
+
+**Dashboard** (`dashboard.py`): Cross-model comparison HTML with executive summary cards, pass-rate/score matrices, performance comparison, runtime estimation, drill-down per model, and compliance sections. Also provides `estimate_full_runtime()` for predicting test duration.
+
+**Key dependencies**: openai (vLLM API), paramiko (SSH model lifecycle), aiohttp (async streaming), scipy (Chi² bias test), numpy (bootstrap CI), jinja2 (templates), bandit (SAST).
 
 ## Environment variables
 

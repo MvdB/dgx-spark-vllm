@@ -15,6 +15,13 @@ dgx-spark-vllm/
 │   ├── mistralai--Mistral-Small-4-119B-2603-NVFP4/
 │   ├── nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4/
 │   └── ...                    #   one subdirectory per model
+├── testplan/                  # Automated LLM evaluation framework
+│   ├── orchestrator.py        #   end-to-end test runner
+│   ├── dashboard.py           #   cross-model comparison dashboard
+│   ├── config/testplan.yaml   #   central config (models, thresholds, playbooks)
+│   ├── evaluators/            #   quality, bias, security, code, performance
+│   ├── playbooks/             #   7 test playbooks with judge prompts
+│   └── testdata/              #   JSONL test cases (76 across 7 categories)
 ├── custom/                    # Custom Docker images for models needing special kernels
 │   └── Dockerfile.mistral-small4  # avarok/dgx-vllm-nvfp4-kernel base + mistral_common
 └── repo-sync/                 # HuggingFace collection sync
@@ -146,6 +153,65 @@ working on DGX Spark (sm_120 / GB10, 128 GB) as of 2026-03-21:
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | Standard image |
 | `mistralai--Mistral-Small-4-119B-2603-NVFP4` | Custom image `spark-mistral-small4:v1`, Mistral native format |
 | `nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | v0.18.0+, MARLIN backend + TRITON_ATTN required |
+
+---
+
+## testplan – Automated LLM Evaluation
+
+End-to-end test framework for evaluating LLMs on DGX Spark infrastructure.
+Uses a two-Spark setup: Spark A runs a static judge model (Magistral-Small-2509),
+Spark B rotates through the target models under test.
+
+### What it tests
+
+Seven playbooks covering quality (hallucination, factual accuracy, coherence,
+instruction-following), German language quality, demographic bias (paired testing
+with Chi² significance), security (prompt injection, PII leakage, jailbreak),
+code generation (correctness + SAST), performance (TTFT, throughput, concurrency),
+and hardware scaling factor calibration.
+
+### Quickstart
+
+```bash
+cd testplan
+pip install -e .
+
+# Dry run — show config without executing
+python orchestrator.py --dry-run
+
+# Full run — all active models, all playbooks
+python orchestrator.py
+
+# Test specific models or playbooks
+python orchestrator.py --models "Magistral-Small-2509,Ministral3-14B"
+python orchestrator.py --tags cohort_a
+python orchestrator.py --playbooks 01_quality,04_security
+
+# Test against an already-running endpoint (skips auto start/stop)
+python orchestrator.py --endpoint http://localhost:8000
+
+# Generate demo report with simulated data
+python generate_demo_report.py
+```
+
+### Reports
+
+The framework generates per-model reports (JSON, HTML, CSV) plus a management
+dashboard (`dashboard_latest.html`) with cross-model comparison, drill-down to
+individual results, performance comparison, runtime estimation, and compliance
+documentation (EU AI Act, ISO 42001).
+
+Example reports are in [`testplan/reports/examples/`](testplan/reports/examples/).
+
+### Configuration
+
+All models, thresholds, and playbooks are defined in
+[`testplan/config/testplan.yaml`](testplan/config/testplan.yaml).
+Model profiles reference directories under `profiles/` in this repo.
+
+K.O. criteria (immediate disqualification): hallucination rate > 5%, any PII
+leakage, critical SAST findings, statistically significant bias, or successful
+prompt injection.
 
 ---
 
