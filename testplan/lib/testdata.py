@@ -52,14 +52,25 @@ class TestCase:
     language: str
     difficulty: str
     prompt: str
-    expected: Expected
+    expected: Expected | None
     system_prompt: str = ""
     context: str = ""
+    max_tokens: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TestCase:
-        exp = data["expected"]
+        exp_data = data.get("expected")
+        expected = (
+            Expected(
+                type=exp_data["type"],
+                value=exp_data.get("value", ""),
+                alternatives=exp_data.get("alternatives", []),
+                forbidden=exp_data.get("forbidden", []),
+            )
+            if exp_data is not None
+            else None
+        )
         return cls(
             id=data["id"],
             category=data["category"],
@@ -69,17 +80,13 @@ class TestCase:
             prompt=data["prompt"],
             system_prompt=data.get("system_prompt", ""),
             context=data.get("context", ""),
-            expected=Expected(
-                type=exp["type"],
-                value=exp.get("value", ""),
-                alternatives=exp.get("alternatives", []),
-                forbidden=exp.get("forbidden", []),
-            ),
+            max_tokens=data.get("max_tokens"),
+            expected=expected,
             metadata=data.get("metadata", {}),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "id": self.id,
             "category": self.category,
             "subcategory": self.subcategory,
@@ -88,14 +95,18 @@ class TestCase:
             "prompt": self.prompt,
             "system_prompt": self.system_prompt,
             "context": self.context,
-            "expected": {
+            "metadata": self.metadata,
+        }
+        if self.max_tokens is not None:
+            d["max_tokens"] = self.max_tokens
+        if self.expected is not None:
+            d["expected"] = {
                 "type": self.expected.type,
                 "value": self.expected.value,
                 "alternatives": self.expected.alternatives,
                 "forbidden": self.expected.forbidden,
-            },
-            "metadata": self.metadata,
-        }
+            }
+        return d
 
 
 class TestDataLoader:
@@ -178,8 +189,9 @@ class TestDataLoader:
                 # Pflichtfelder
                 if not case.prompt.strip():
                     errors.append(f"{case.id}: Leerer Prompt")
-                if not case.expected.value and case.expected.type != "judge":
-                    errors.append(f"{case.id}: Kein expected.value (außer bei type=judge)")
+                if case.expected is not None:
+                    if not case.expected.value and case.expected.type != "judge":
+                        errors.append(f"{case.id}: Kein expected.value (außer bei type=judge)")
 
         # Sprachverteilung prüfen
         total = sum(len(c) for c in all_cases.values())

@@ -45,7 +45,7 @@ class VllmInstance:
 class VllmController:
     """Steuert vLLM-Instanzen auf Remote-DGX-Spark-Maschinen."""
 
-    def __init__(self, ssh_key_path: str | None = None, ssh_user: str = "root"):
+    def __init__(self, ssh_key_path: str | None = None, ssh_user: str = "mvdb"):
         self.ssh_key_path = ssh_key_path
         self.ssh_user = ssh_user
         self._connections: dict[str, paramiko.SSHClient] = {}
@@ -91,13 +91,16 @@ class VllmController:
         # Bestehenden Container stoppen falls vorhanden
         self._exec(host, f"docker rm -f {container_name} 2>/dev/null || true")
 
-        # vllm_spark.sh im Non-Interactive-Modus starten
-        # Das Script erwartet den Modellnamen als Argument
+        # vllm_spark.sh im Non-Interactive-Modus starten.
+        # docker run -d ist bereits im Script → Script endet nach dem Start selbst.
         spark_path = endpoint.vllm_spark_path
+        hf_env = f"HF_MODELS_DIR={endpoint.hf_models_dir} " if endpoint.hf_models_dir else ""
         start_cmd = (
             f"cd {spark_path} && "
-            f"VLLM_CONTAINER_NAME={container_name} "
-            f"bash runner/vllm_spark.sh --model {model.profile} --detach"
+            f"{hf_env}"
+            f"CONTAINER_NAME={container_name} "
+            f"HOST_PORT={endpoint.port} "
+            f"bash runner/vllm_spark.sh --model {model.profile} --skip-pull"
         )
         stdout, stderr, exit_code = self._exec(host, start_cmd, timeout=120)
 
@@ -180,12 +183,14 @@ class VllmController:
         except TimeoutError:
             pass
 
-        # Judge starten
+        # Judge starten – profile-Feld als vllm_spark.sh-Pattern nutzen,
+        # falls angegeben; sonst model-Feld (HF-ID) als Fallback.
+        judge_pattern = judge_config.profile or judge_config.model
         return self.start_model(
             judge_config,
             ModelConfig(
-                name="Judge (Mistral-Small-24B)",
-                profile=judge_config.model,
+                name="Judge",
+                profile=judge_pattern,
                 machine="judge",
             ),
         )

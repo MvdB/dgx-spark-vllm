@@ -16,6 +16,8 @@ class EndpointConfig:
     port: int = 8000
     startup_timeout: int = 600
     vllm_spark_path: str = "/opt/dgx-spark-vllm"
+    ssh_user: str = "root"
+    hf_models_dir: str = ""   # leer = vllm_spark.sh-Default (~/ hf_models)
 
     @property
     def base_url(self) -> str:
@@ -29,6 +31,7 @@ class EndpointConfig:
 @dataclass
 class JudgeConfig(EndpointConfig):
     model: str = "mistralai/Mistral-Small-24B-Instruct-2501"
+    profile: str = ""    # vllm_spark.sh --model Pattern; falls leer → model-Feld
     persistent: bool = True
 
 
@@ -101,21 +104,28 @@ class TestplanConfig:
 
         infra = raw["infrastructure"]
 
+        jc = infra["judge"]
         judge = JudgeConfig(
-            host=infra["judge"]["host"],
-            port=infra["judge"]["port"],
-            model=infra["judge"]["model"],
-            vllm_spark_path=infra["judge"]["vllm_spark_path"],
-            startup_timeout=infra["judge"]["startup_timeout"],
-            persistent=infra["judge"]["persistent"],
+            host=jc["host"],
+            port=jc["port"],
+            model=jc["model"],
+            profile=jc.get("profile", ""),
+            vllm_spark_path=jc["vllm_spark_path"],
+            startup_timeout=jc["startup_timeout"],
+            persistent=jc["persistent"],
+            ssh_user=jc.get("ssh_user", infra.get("ssh_user", "root")),
+            hf_models_dir=jc.get("hf_models_dir", ""),
         )
 
+        tc = infra["target"]
         target = TargetConfig(
-            host=infra["target"]["host"],
-            port=infra["target"]["port"],
-            vllm_spark_path=infra["target"]["vllm_spark_path"],
-            startup_timeout=infra["target"]["startup_timeout"],
-            cooldown_seconds=infra["target"]["cooldown_seconds"],
+            host=tc["host"],
+            port=tc["port"],
+            vllm_spark_path=tc["vllm_spark_path"],
+            startup_timeout=tc["startup_timeout"],
+            cooldown_seconds=tc["cooldown_seconds"],
+            ssh_user=tc.get("ssh_user", infra.get("ssh_user", "root")),
+            hf_models_dir=tc.get("hf_models_dir", ""),
         )
 
         models = [

@@ -11,23 +11,25 @@
 # Infrastruktur
 # ---------------------------------------------------------------------------
 infrastructure:
+  ssh_user: "mvdb"
+
   judge:
-    # DGX Spark A — statischer Judge, läuft während gesamtem Testlauf
-    host: "dgx-spark-a"           # Hostname oder IP
+    # gb10-rack — statischer Judge, läuft während gesamtem Testlauf
+    host: "gb10-rack"
     port: 8000
-    model: "mistralai/Magistral-Small-2509"
-    vllm_spark_path: "/opt/dgx-spark-vllm"   # Pfad zum geklonten Repo
-    startup_timeout: 600          # Sekunden bis Health-Check
-    # Judge bleibt zwischen Target-Modellen laufen (kein Neustart)
+    model: "mistralai/Mistral-Small-3.1-24B-Instruct-2503"  # API-Modell-ID (von vLLM geliefert)
+    profile: "Ministral-3-14B-Instruct"                      # vllm_spark.sh --model Pattern
+    hf_models_dir: "/home/mvdb/vllm-model-store"
+    vllm_spark_path: "/home/mvdb/dgx-spark-vllm"
+    startup_timeout: 600
     persistent: true
 
   target:
-    # DGX Spark B — hier rotieren die Test-Modelle durch
-    host: "dgx-spark-b"
+    # gb10-desktop — hier rotieren die Test-Modelle durch
+    host: "gb10-desktop"
     port: 8000
-    vllm_spark_path: "/opt/dgx-spark-vllm"
+    vllm_spark_path: "/home/mvdb/dgx-spark-vllm"
     startup_timeout: 600
-    # Cooldown zwischen Modellwechseln (GPU-Speicher freigeben)
     cooldown_seconds: 30
 
   # Produktionsmaschinen — nur für HSF-Kalibrierungslauf
@@ -51,6 +53,21 @@ infrastructure:
 # 'tags' werden für Playbook-Filter genutzt.
 # ---------------------------------------------------------------------------
 models:
+  # --- Smoke-Test: kleine Modelle für System-/Infrastrukturtest ---
+  - name: "Ministral-3-3B"
+    profile: "mistralai--Ministral-3-3B-Instruct-2512"
+    machine: "machine_a"
+    tags: ["smoke", "dense", "instruct"]
+    active: false
+    notes: "Klein + schnell — für Infra-Tests und CI"
+
+  - name: "Qwen3.5-0.8B"
+    profile: "Qwen--Qwen3.5-0.8B"
+    machine: "machine_a"
+    tags: ["smoke", "dense"]
+    active: false
+    notes: "Kleinstes Modell — reiner Infra-Smoke-Test"
+
   # --- Kohorte A: aktuell in Evaluation ---
   - name: "Devstral-Small-24B"
     profile: "mistralai--Devstral-Small-2-24B-Instruct-2512"

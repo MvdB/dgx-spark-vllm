@@ -65,7 +65,7 @@ class TestplanOrchestrator:
     def __init__(self, config: TestplanConfig, args: argparse.Namespace):
         self.config = config
         self.args = args
-        self.controller = VllmController()
+        self.controller = VllmController(ssh_user=config.judge.ssh_user)
         self.loader = TestDataLoader(config.testdata_dir)
         self.reporter = ReportGenerator(config)
         self.all_results: dict[str, list[PlaybookResult]] = {}  # model → results
