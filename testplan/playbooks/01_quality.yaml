@@ -1,0 +1,296 @@
+# =============================================================================
+# Playbook 01: Qualität
+# =============================================================================
+# Halluzination, Faktentreue, Kohärenz, Instruktionsbefolgung
+#
+# K.O.-Kriterium: Halluzinationsrate > 5 % über alle Testfälle
+#
+# Dieses Playbook ist das kritischste: Halluzination ist das einzige
+# Qualitäts-K.O.-Kriterium, das zur sofortigen Disqualifikation führt.
+# =============================================================================
+
+name: "01_quality"
+description: "Halluzination, Faktentreue, Kohärenz, Instruktionsbefolgung"
+version: "1.0"
+timeout_minutes: 120
+
+# ---------------------------------------------------------------------------
+# Evaluator-Konfiguration
+# ---------------------------------------------------------------------------
+evaluator: "quality"
+judge_temperature: 0.0       # Deterministisch für Reproduzierbarkeit
+target_temperature: 0.1      # Leicht stochastisch für realistischere Tests
+target_max_tokens: 2048
+
+# ---------------------------------------------------------------------------
+# Judge-Prompts — zentrale Bewertungsanweisungen
+# ---------------------------------------------------------------------------
+# Diese Prompts werden an den Judge (Mistral-Small-24B auf Spark A) gesendet.
+# Sie definieren exakt, wie jede Subkategorie bewertet wird.
+# ---------------------------------------------------------------------------
+judge_prompts:
+
+  hallucination:
+    system: |
+      Du bist ein strenger Qualitätsprüfer für KI-generierte Antworten.
+      Deine Aufgabe: Prüfe ob die Antwort Halluzinationen enthält — also
+      Fakten, Behauptungen oder Details, die NICHT aus dem gegebenen Kontext
+      oder allgemein verifiziertem Wissen ableitbar sind.
+
+      DEFINITIONEN:
+      - Schwere Halluzination: Komplett erfundene Fakten, Personen, Gesetze,
+        Statistiken oder Zitate. Beispiel: Erfundene Gerichtsurteile.
+      - Leichte Halluzination: Übertriebene Genauigkeit (exakte Zahlen wo
+        nur Schätzungen möglich), plausible aber unverifizierbare Details.
+      - KEINE Halluzination: Allgemeinwissen, korrekte Einschränkungen
+        ("Ich bin nicht sicher..."), logische Schlussfolgerungen.
+
+      Bewertungsskala 1-5:
+      5 = Keine Halluzinationen, räumt Unsicherheit ein wenn angebracht
+      4 = Minimale Ungenauigkeiten, keine erfundenen Fakten
+      3 = Einzelne fragwürdige Behauptungen, Kernaussage korrekt
+      2 = Mehrere erfundene oder nachweislich falsche Fakten
+      1 = Schwerwiegende Halluzinationen, komplett erfundene Informationen
+
+      ANTWORTFORMAT (strikt JSON):
+      {"score": <1-5>, "hallucinations": ["<Konkrete Halluzinationen>"],
+       "severity": "<none|minor|major|critical>",
+       "reasoning": "<Begründung in 2-3 Sätzen>"}
+
+    user_template: |
+      ## Ursprüngliche Frage / Anweisung
+      {prompt}
+
+      {%- if context %}
+      ## Gegebener Kontext (Referenzmaterial)
+      {context}
+      {%- endif %}
+
+      {%- if expected_value %}
+      ## Referenzantwort (falls vorhanden)
+      {expected_value}
+      {%- endif %}
+
+      ## KI-Antwort (zu bewerten)
+      {response}
+
+    scoring:
+      scale: [1, 5]
+      normalize_to: [0.0, 1.0]   # score/5
+      ko_below: 0.4              # Score < 2/5 bei einzelnem Testfall → K.O.-Kandidat
+    patterns:
+      # Regex-Patterns die auf Halluzinationen hindeuten (Vorab-Filter)
+      suspicious_indicators:
+        - "(?:geboren|geb\\.) (?:am |den )?\\d{1,2}\\. \\w+ \\d{4}"  # Geburtsdaten für fiktive Personen
+        - "laut (?:einer )?Studie (?:von|der|aus) \\d{4}"             # Erfundene Studienreferenzen
+        - "(?:§|Art\\.) \\d+[a-z]? (?:Abs\\. \\d+ )?\\w+(?:G|VO|RL)" # Verdächtige Gesetzesverweise
+
+  factual:
+    system: |
+      Du bist ein Faktenchecker. Vergleiche die KI-Antwort mit der erwarteten
+      Referenzantwort und bewerte die faktische Korrektheit.
+
+      PRÜFKRITERIEN:
+      - Kernfakten: Sind die wesentlichen Informationen korrekt?
+      - Vollständigkeit: Fehlen wichtige Aspekte der Referenzantwort?
+      - Präzision: Sind Zahlen, Daten, Namen korrekt?
+      - Aktualität: Sind die Informationen auf dem aktuellen Stand?
+
+      Bewertungsskala 1-5:
+      5 = Faktisch vollständig korrekt, alle Kernfakten enthalten
+      4 = Überwiegend korrekt, kleinere Auslassungen
+      3 = Teilweise korrekt, wichtige Fakten fehlen oder sind ungenau
+      2 = Überwiegend falsch oder unvollständig
+      1 = Komplett falsch oder am Thema vorbei
+
+      ANTWORTFORMAT (strikt JSON):
+      {"score": <1-5>, "correct_facts": ["..."], "missing_facts": ["..."],
+       "wrong_facts": ["..."], "reasoning": "<Begründung>"}
+
+    user_template: |
+      ## Frage
+      {prompt}
+
+      ## Erwartete korrekte Antwort
+      {expected_value}
+
+      ## KI-Antwort (zu bewerten)
+      {response}
+
+    scoring:
+      scale: [1, 5]
+      normalize_to: [0.0, 1.0]
+      target: 0.90
+      warning: 0.80
+
+  coherence:
+    system: |
+      Du bist ein Sprachqualitätsprüfer. Bewerte die Antwort hinsichtlich
+      Kohärenz, Struktur und Verständlichkeit.
+
+      PRÜFKRITERIEN:
+      - Logischer Aufbau: Folgen Absätze/Argumente einer klaren Logik?
+      - Konsistenz: Widerspricht sich die Antwort intern?
+      - Redundanz: Werden Informationen unnötig wiederholt?
+      - Transitions: Sind Übergänge zwischen Themen flüssig?
+      - Lesbarkeit: Ist der Text für die Zielgruppe verständlich?
+
+      Bewertungsskala 1-5:
+      5 = Klar strukturiert, logisch aufgebaut, gut lesbar
+      4 = Überwiegend klar, kleine Schwächen in Struktur/Übergängen
+      3 = Verständlich, aber unstrukturiert oder redundant
+      2 = Schwer verständlich, unlogische Struktur
+      1 = Inkohärent, widersprüchlich, unverständlich
+
+      ANTWORTFORMAT (strikt JSON):
+      {"score": <1-5>, "issues": ["<Konkrete Probleme>"],
+       "reasoning": "<Begründung>"}
+
+    user_template: |
+      ## Aufgabenstellung
+      {prompt}
+
+      ## KI-Antwort (zu bewerten)
+      {response}
+
+    scoring:
+      scale: [1, 5]
+      normalize_to: [0.0, 1.0]
+      target: 0.85
+
+  instruction:
+    system: |
+      Du bist ein Evaluator für Instruktionsbefolgung. Prüfe ob die KI-Antwort
+      die gegebene Anweisung korrekt und vollständig befolgt hat.
+
+      PRÜFKRITERIEN:
+      - Format: Wurde das gewünschte Format eingehalten? (JSON, Tabelle,
+        Liste, Fließtext, bestimmte Länge, Sprache, etc.)
+      - Inhalt: Wurden alle inhaltlichen Vorgaben erfüllt?
+      - Einschränkungen: Wurden Verbote eingehalten? (z.B. "keine Beispiele",
+        "maximal 3 Sätze", "nur auf Deutsch")
+      - Rolle: Wurde eine vorgegebene Rolle korrekt eingenommen?
+      - Mehrstufigkeit: Bei Aufgaben mit mehreren Schritten — alle erledigt?
+
+      Bewertungsskala 1-5:
+      5 = Alle Anweisungen exakt befolgt, Format und Inhalt wie gewünscht
+      4 = Überwiegend befolgt, minimale Abweichungen
+      3 = Kernaufgabe erfüllt, aber Teilanweisungen ignoriert
+      2 = Nur teilweise befolgt, wichtige Aspekte fehlen
+      1 = Anweisung nicht befolgt oder komplett missverstanden
+
+      ANTWORTFORMAT (strikt JSON):
+      {"score": <1-5>, "followed": ["<Befolgte Anweisungen>"],
+       "violated": ["<Nicht befolgte Anweisungen>"],
+       "reasoning": "<Begründung>"}
+
+    user_template: |
+      ## Anweisung an das Modell
+      {prompt}
+
+      {%- if system_prompt %}
+      ## System-Prompt
+      {system_prompt}
+      {%- endif %}
+
+      ## KI-Antwort (zu bewerten)
+      {response}
+
+    scoring:
+      scale: [1, 5]
+      normalize_to: [0.0, 1.0]
+      target: 0.90
+
+# ---------------------------------------------------------------------------
+# Testdaten
+# ---------------------------------------------------------------------------
+testdata:
+  category: "quality"
+  files:
+    - "quality/hallucination.jsonl"
+    - "quality/factual.jsonl"
+    - "quality/coherence.jsonl"      # → Noch zu erstellen
+    - "quality/instruction.jsonl"    # → Noch zu erstellen
+
+  subcategories:
+    - name: "hallucination"
+      weight: 0.35
+      min_cases: 80                  # Mindestens 80 Testfälle für statistisch
+      description: |                 # belastbare Halluzinationsrate
+        Testfälle bei denen das Modell verleitet wird, Fakten zu erfinden.
+        TYPEN:
+        1. Fake-Entitäten: Fragen zu nicht-existierenden Personen, Firmen, Gesetzen
+        2. Fake-Referenzen: Erfundene Aktenzeichen, Paper-Titel, Studienergebnisse
+        3. Kontext-Überschreitung: Fragen die über den gegebenen Kontext hinausgehen
+        4. Implizite Annahmen: Prompts die falsche Prämissen enthalten
+        5. Zahlen-Fallen: Fragen nach konkreten Zahlen die nicht ableitbar sind
+      ko_threshold: 0.05
+
+    - name: "factual"
+      weight: 0.30
+      min_cases: 60
+      description: |
+        Faktenwissen-Tests mit verifizierbaren Antworten.
+        DOMÄNEN:
+        1. Recht (DE): Grundgesetz, BGB, Arbeitsrecht, DSGVO
+        2. Technik: IT, Softwareentwicklung, Netzwerke
+        3. Unternehmens-Domäne: Branchenspezifisches Fachwissen
+        4. Allgemeinwissen: Geografie, Geschichte, Naturwissenschaften
+      target_score: 0.90
+      warning_score: 0.80
+
+    - name: "coherence"
+      weight: 0.15
+      min_cases: 30
+      description: |
+        Kohärenz und Struktur bei längeren Antworten.
+        TYPEN:
+        1. Zusammenfassungen: Lange Texte auf Kernaussagen reduzieren
+        2. Erklärungen: Komplexe Sachverhalte schrittweise erklären
+        3. Vergleiche: Pro/Contra-Analysen mit klarer Struktur
+        4. Mehrstufige Argumente: Aufeinanderaufbauende Argumentation
+      target_score: 0.85
+
+    - name: "instruction"
+      weight: 0.20
+      min_cases: 40
+      description: |
+        Instruktionsbefolgung bei komplexen Anweisungen.
+        TYPEN:
+        1. Format-Vorgaben: "Antworte als JSON", "Erstelle eine Tabelle"
+        2. Längenbeschränkungen: "Maximal 3 Sätze", "Mindestens 500 Wörter"
+        3. Rollenvorgaben: "Du bist ein Jurist", "Erkläre es einem Kind"
+        4. Sprach-Constraints: "Antworte auf Englisch", "Nutze Fachsprache"
+        5. Mehrstufige Aufgaben: "Erst analysiere X, dann empfehle Y"
+        6. Negative Constraints: "Nutze KEINE Aufzählungszeichen"
+      target_score: 0.90
+
+# ---------------------------------------------------------------------------
+# Aggregation und K.O.-Logik
+# ---------------------------------------------------------------------------
+aggregation:
+  hallucination_rate:
+    method: "fail_rate"
+    subcategory: "hallucination"
+    ko_above: 0.05
+    calculation: |
+      rate = count(verdict IN [FAIL, KNOCKOUT]) / count(all hallucination cases)
+      if rate > 0.05: verdict = KNOCKOUT für das gesamte Modell
+
+  overall_score:
+    method: "weighted_mean"
+    weights:
+      hallucination: 0.35
+      factual: 0.30
+      coherence: 0.15
+      instruction: 0.20
+
+# ---------------------------------------------------------------------------
+# Reproduzierbarkeits-Protokoll
+# ---------------------------------------------------------------------------
+reproducibility:
+  # Jeder Testfall wird 1x ausgeführt (temperature=0.1 für leichte Varianz)
+  # Bei grenzwertigen Ergebnissen (Score 2.5-3.5/5): automatischer Re-Run
+  reruns_on_borderline: 3
+  borderline_range: [0.45, 0.65]   # Normalisiert auf 0-1
+  final_score: "median"            # Median der Reruns als finaler Score
