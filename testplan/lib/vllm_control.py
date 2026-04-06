@@ -28,6 +28,7 @@ class VllmInstance:
     model: ModelConfig | None
     container_name: str
     client: OpenAI | None = None
+    _model_id: str | None = None
 
     @property
     def api_url(self) -> str:
@@ -40,6 +41,18 @@ class VllmInstance:
                 api_key="not-needed",  # vLLM braucht keinen echten Key
             )
         return self.client
+
+    def resolve_model_id(self) -> str:
+        """Frage die echte Modell-ID vom laufenden vLLM-Endpoint ab."""
+        if self._model_id is None:
+            try:
+                models = self.get_client().models.list()
+                self._model_id = models.data[0].id
+                logger.info("Modell-ID vom Endpoint: %s", self._model_id)
+            except Exception as e:
+                logger.warning("Konnte Modell-ID nicht abfragen: %s", e)
+                self._model_id = f"/hf_models/{self.model.profile}" if self.model else ""
+        return self._model_id
 
 
 class VllmController:

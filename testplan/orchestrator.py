@@ -49,6 +49,18 @@ from reporter import ReportGenerator
 logger = logging.getLogger("testplan")
 
 
+def _query_model_id(client: object, fallback: str = "") -> str:
+    """Frage die erste Modell-ID vom laufenden vLLM-Endpoint ab."""
+    try:
+        models = client.models.list()
+        model_id = models.data[0].id
+        logger.info("Modell-ID vom Endpoint: %s", model_id)
+        return model_id
+    except Exception as e:
+        logger.warning("Konnte Modell-ID nicht abfragen, nutze Fallback '%s': %s", fallback, e)
+        return fallback
+
+
 def setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -139,7 +151,7 @@ class TestplanOrchestrator:
         """Wähle Modelle basierend auf CLI-Argumenten."""
         if self.args.models:
             names = [n.strip() for n in self.args.models.split(",")]
-            return [m for m in self.config.models if m.name in names and m.active]
+            return [m for m in self.config.models if m.name in names]
         if self.args.tags:
             tags = [t.strip() for t in self.args.tags.split(",")]
             return self.config.active_models(tags=tags)
@@ -167,13 +179,13 @@ class TestplanOrchestrator:
                     base_url=f"{self.args.endpoint}/v1",
                     api_key="not-needed",
                 )
-                target_model = model.profile
+                target_model = _query_model_id(target_client, fallback=f"/hf_models/{model.profile}")
             else:
                 target_instance = self.controller.start_model(
                     self.config.target, model,
                 )
                 target_client = target_instance.get_client()
-                target_model = model.profile
+                target_model = target_instance.resolve_model_id()
 
             # Judge-Client
             judge_client = None
