@@ -101,8 +101,10 @@ class VllmController:
 
         logger.info("Starte %s auf %s ...", model.name, host)
 
-        # Bestehenden Container stoppen falls vorhanden
+        # Bestehenden Container stoppen (gleicher Name oder Port belegt)
         self._exec(host, f"docker rm -f {container_name} 2>/dev/null || true")
+        port = endpoint.port
+        self._exec(host, f"docker ps -q --filter publish={port} | xargs -r docker rm -f 2>/dev/null || true")
 
         # vllm_spark.sh im Non-Interactive-Modus starten.
         # docker run -d ist bereits im Script → Script endet nach dem Start selbst.

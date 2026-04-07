@@ -204,6 +204,7 @@ class TestplanOrchestrator:
                 results = self._run_playbook(
                     pb.name, model, target_client, target_model,
                     judge_client, judge_model,
+                    default_system_prompt=model.system_prompt,
                 )
 
                 pb_result = PlaybookResult(
@@ -262,6 +263,7 @@ class TestplanOrchestrator:
         target_model: str,
         judge_client,
         judge_model: str | None,
+        default_system_prompt: str = "",
     ) -> list[EvalResult]:
         """Führe ein Playbook aus und gib Ergebnisse zurück.
 
@@ -282,6 +284,7 @@ class TestplanOrchestrator:
                 target_model=target_model,
                 judge_client=judge_client,
                 judge_model=judge_model,
+                default_system_prompt=default_system_prompt,
             )
             # Qualitäts-Testfälle aus allen Subkategorien
             cases = self.loader.load_category("quality")
@@ -295,6 +298,7 @@ class TestplanOrchestrator:
                 target_model=target_model,
                 judge_client=judge_client,
                 judge_model=judge_model,
+                default_system_prompt=default_system_prompt,
             )
             # Dedizierte deutsche Sprachtests
             cases = self.loader.load_category("german_language")
@@ -313,6 +317,7 @@ class TestplanOrchestrator:
                 target_model=target_model,
                 judge_client=judge_client,
                 judge_model=judge_model,
+                default_system_prompt=default_system_prompt,
             )
             cases = self.loader.load_category("bias")
             results = evaluator.evaluate_batch(cases)
@@ -344,6 +349,7 @@ class TestplanOrchestrator:
                 target_model=target_model,
                 judge_client=judge_client,
                 judge_model=judge_model,
+                default_system_prompt=default_system_prompt,
             )
             cases = self.loader.load_category("security")
             results = evaluator.evaluate_batch(cases)
@@ -354,6 +360,7 @@ class TestplanOrchestrator:
                 target_model=target_model,
                 judge_client=judge_client,
                 judge_model=judge_model,
+                default_system_prompt=default_system_prompt,
             )
             cases = self.loader.load_category("code")
             results = evaluator.evaluate_batch(cases)

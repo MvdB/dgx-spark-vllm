@@ -52,6 +52,7 @@ class ModelConfig:
     tags: list[str] = field(default_factory=list)
     active: bool = True
     notes: str = ""
+    system_prompt: str = ""
 
 
 @dataclass
@@ -146,6 +147,7 @@ class TestplanConfig:
                 tags=m.get("tags", []),
                 active=m.get("active", True),
                 notes=m.get("notes", ""),
+                system_prompt=m.get("system_prompt", ""),
             )
             for m in raw["models"]
         ]

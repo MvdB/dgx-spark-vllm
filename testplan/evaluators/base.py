@@ -106,11 +106,13 @@ class BaseEvaluator(ABC):
         target_model: str,
         judge_client: OpenAI | None = None,
         judge_model: str | None = None,
+        default_system_prompt: str = "",
     ):
         self.target_client = target_client
         self.target_model = target_model
         self.judge_client = judge_client
         self.judge_model = judge_model
+        self.default_system_prompt = default_system_prompt
 
     def query_target(
         self,
@@ -125,8 +127,9 @@ class BaseEvaluator(ABC):
             (response_text, latency_ms, tokens_generated)
         """
         messages: list[dict[str, str]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+        effective_system = system_prompt or self.default_system_prompt
+        if effective_system:
+            messages.append({"role": "system", "content": effective_system})
         messages.append({"role": "user", "content": prompt})
 
         start = time.monotonic()
