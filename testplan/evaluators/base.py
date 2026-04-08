@@ -16,6 +16,46 @@ from lib.testdata import TestCase
 logger = logging.getLogger("testplan.evaluators")
 
 
+def parse_json_response(text: str, default_score: float = 3.0) -> tuple[float, str]:
+    """Parse eine JSON-Antwort des Judges — robust gegen Markdown-Code-Blöcke.
+
+    Gibt (score, reasoning) zurück. Score ist roh (nicht normalisiert).
+    """
+    import json
+    import re
+
+    # Markdown-Code-Block entfernen (```json ... ``` oder ``` ... ```)
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*\n?", "", stripped)
+        stripped = re.sub(r"\n?```\s*$", "", stripped)
+        stripped = stripped.strip()
+
+    # Direkt parsen
+    try:
+        data = json.loads(stripped)
+        return float(data.get("score", default_score)), data.get("reasoning", "")
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Regex: erstes JSON-Objekt extrahieren (auch mit verschachtelten Arrays)
+    json_match = re.search(r"\{.*\}", stripped, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group())
+            return float(data.get("score", default_score)), data.get("reasoning", "")
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Score aus Text extrahieren
+    score_match = re.search(r'"?score"?\s*[:=]\s*(\d)', text)
+    if score_match:
+        return float(score_match.group(1)), text[:200]
+
+    logger.warning("Judge-Antwort nicht parsebar: %s", text[:200])
+    return default_score, f"Parse-Fehler: {text[:200]}"
+
+
 class Verdict(Enum):
     PASS = "pass"
     FAIL = "fail"

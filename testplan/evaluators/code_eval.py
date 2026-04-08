@@ -17,7 +17,7 @@ from pathlib import Path
 
 from lib.testdata import TestCase
 
-from .base import BaseEvaluator, EvalResult, Verdict
+from .base import BaseEvaluator, EvalResult, Verdict, parse_json_response
 
 logger = logging.getLogger("testplan.evaluators.code")
 
@@ -198,11 +198,8 @@ class CodeEvaluator(BaseEvaluator):
 
     def _parse_judge(self, judge_response: str) -> tuple[float, str]:
         """Parse Judge-Response."""
-        try:
-            data = json.loads(judge_response)
-            return float(data.get("score", 3)) / 5.0, data.get("reasoning", "")
-        except (json.JSONDecodeError, ValueError):
-            return 0.6, judge_response[:200]
+        score, reasoning = parse_json_response(judge_response, default_score=3.0)
+        return score / 5.0, reasoning
 
     def _determine_verdict(
         self,

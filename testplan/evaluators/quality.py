@@ -12,7 +12,7 @@ import re
 
 from lib.testdata import TestCase
 
-from .base import BaseEvaluator, EvalResult, Verdict
+from .base import BaseEvaluator, EvalResult, Verdict, parse_json_response
 
 logger = logging.getLogger("testplan.evaluators.quality")
 
@@ -175,29 +175,7 @@ class QualityEvaluator(BaseEvaluator):
 
     def _parse_judge_response(self, judge_response: str) -> tuple[float, str]:
         """Parse die JSON-Antwort des Judges. Robust gegen Formatfehler."""
-        try:
-            # Versuche JSON direkt zu parsen
-            data = json.loads(judge_response)
-            return float(data.get("score", 3)), data.get("reasoning", "")
-        except json.JSONDecodeError:
-            pass
-
-        # Fallback: JSON aus dem Text extrahieren
-        json_match = re.search(r"\{[^{}]+\}", judge_response, re.DOTALL)
-        if json_match:
-            try:
-                data = json.loads(json_match.group())
-                return float(data.get("score", 3)), data.get("reasoning", "")
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        # Letzter Fallback: Score aus Text extrahieren
-        score_match = re.search(r'"?score"?\s*[:=]\s*(\d)', judge_response)
-        if score_match:
-            return float(score_match.group(1)), judge_response[:200]
-
-        logger.warning("Judge-Antwort nicht parsebar: %s", judge_response[:200])
-        return 3.0, f"Parse-Fehler: {judge_response[:200]}"
+        return parse_json_response(judge_response, default_score=3.0)
 
     def _determine_verdict(
         self, subcategory: str, score: float, test_case: TestCase
