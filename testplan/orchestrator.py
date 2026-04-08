@@ -79,8 +79,9 @@ class TestplanOrchestrator:
         self.args = args
         self.controller = VllmController(ssh_user=config.judge.ssh_user)
         self.loader = TestDataLoader(config.testdata_dir)
-        self.reporter = ReportGenerator(config)
-        self.all_results: dict[str, list[PlaybookResult]] = {}  # model → results
+        run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+        self.reporter = ReportGenerator(config, run_timestamp=run_ts)
+        self.all_results: dict[str, tuple[ModelConfig, list[PlaybookResult]]] = {}
 
     def run(self) -> int:
         """Haupteinstieg. Returns Exit-Code (0=OK, 1=Failures, 2=K.O.)."""
@@ -137,8 +138,13 @@ class TestplanOrchestrator:
                     logger.error("Fehler bei %s: %s", model.name, e, exc_info=True)
                     exit_code = max(exit_code, 1)
 
-            # Report generieren
-            self.reporter.generate(self.all_results)
+                # Einzel-Report + Dashboard nach jedem Modell aktualisieren
+                if model.name in self.all_results:
+                    self.reporter.generate_single(model, self.all_results[model.name][1])
+                    self.reporter.update_dashboard(self.all_results)
+
+            # Finales Dashboard
+            self.reporter.update_dashboard(self.all_results)
 
         finally:
             self.controller.close()
@@ -252,7 +258,7 @@ class TestplanOrchestrator:
                 )
                 time.sleep(self.config.target.cooldown_seconds)
 
-        self.all_results[model.name] = model_results
+        self.all_results[model.name] = (model, model_results)
         return exit_code
 
     def _run_playbook(
