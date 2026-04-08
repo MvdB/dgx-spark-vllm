@@ -196,10 +196,22 @@ python generate_demo_report.py
 
 ### Reports
 
-The framework generates per-model reports (JSON, HTML, CSV) plus a management
-dashboard (`dashboard_latest.html`) with cross-model comparison, drill-down to
-individual results, performance comparison, runtime estimation, and compliance
-documentation (EU AI Act, ISO 42001).
+Each test run produces a timestamped directory under `testplan/reports/`:
+
+```
+testplan/reports/
+└── 2026-04-08_1900/
+    ├── README.md              # Dashboard: all models, pass rates, links (Git primary)
+    ├── Ministral3-14B.md      # Full detail report incl. approval section
+    ├── Ministral3-14B.html    # Quick-check in browser
+    ├── Ministral3-14B.json    # Raw data for further analysis
+    └── ...
+```
+
+Markdown is the primary format — renders directly in GitLab/Gitea/GitHub,
+is diffable, and serves as archivable approval documentation.
+Per-model reports are written immediately after each model completes,
+so partial results survive early abort or timeout.
 
 Example reports are in [`testplan/reports/examples/`](testplan/reports/examples/).
 
