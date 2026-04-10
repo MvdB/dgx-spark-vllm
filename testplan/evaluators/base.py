@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -14,6 +15,31 @@ from openai import OpenAI
 from lib.testdata import TestCase
 
 logger = logging.getLogger("testplan.evaluators")
+
+# Heuristik: Safety-Refusal-Phrases (DE + EN)
+_SAFETY_PATTERNS = re.compile(
+    r"\b(i (can'?t|cannot|won'?t|will not|am unable to|refuse to)|"
+    r"i'?m (not able|unable)|"
+    r"ich (kann|werde|darf) (das |es |nicht|leider)|"
+    r"als (ki|ki-modell|sprachmodell)|"
+    r"as an (ai|language model)|"
+    r"i'?m sorry,? (but )?i|"
+    r"sorry,? (but )?i (can'?t|cannot)|"
+    r"tut mir leid|"
+    r"entschuldigung,? aber ich)\b",
+    re.IGNORECASE,
+)
+
+
+def _classify_response(content: str | None, thinking: str) -> str:
+    """Klassifiziere den Response-Typ für Debugging und Reporting."""
+    if content is None:
+        return "none"
+    if content == "":
+        return "thinking_only" if thinking else "empty"
+    if len(content) < 300 and _SAFETY_PATTERNS.search(content):
+        return "safety_refusal"
+    return "answer"
 
 
 def parse_json_response(text: str, default_score: float = 3.0) -> tuple[float, str]:
@@ -73,10 +99,12 @@ class EvalResult:
     evaluator: str
     verdict: Verdict
     score: float             # 0.0 - 1.0
-    response: str            # Modell-Antwort
+    response: str            # Modell-Antwort (ohne Thinking-Teil)
     reasoning: str = ""      # Begründung (vom Judge oder Evaluator)
     latency_ms: float = 0.0  # Antwortzeit
     tokens_generated: int = 0
+    thinking: str = ""       # Chain-of-Thought / reasoning_content des Modells
+    response_type: str = "answer"  # "answer" | "none" | "empty" | "thinking_only" | "safety_refusal"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -86,7 +114,9 @@ class EvalResult:
             "evaluator": self.evaluator,
             "verdict": self.verdict.value,
             "score": self.score,
+            "response_type": self.response_type,
             "response": self.response[:500],  # Gekürzt für Reports
+            "thinking": self.thinking[:1000] if self.thinking else "",  # Thinking-Excerpt
             "reasoning": self.reasoning,
             "latency_ms": self.latency_ms,
             "tokens_generated": self.tokens_generated,
@@ -160,11 +190,15 @@ class BaseEvaluator(ABC):
         system_prompt: str = "",
         max_tokens: int = 2048,
         temperature: float = 0.1,
-    ) -> tuple[str, float, int]:
+    ) -> tuple[str, str, float, int]:
         """Sende Anfrage an das Zielmodell.
 
         Returns:
-            (response_text, latency_ms, tokens_generated)
+            (response_text, thinking, latency_ms, tokens_generated)
+
+            thinking: Chain-of-Thought aus reasoning_content (vLLM Reasoning-API)
+                      oder aus inline <think>...</think>-Tags im Content.
+                      Leer wenn Modell kein Thinking unterstützt.
         """
         messages: list[dict[str, str]] = []
         effective_system = system_prompt or self.default_system_prompt
@@ -181,9 +215,31 @@ class BaseEvaluator(ABC):
                 temperature=temperature,
             )
             latency_ms = (time.monotonic() - start) * 1000
-            response = completion.choices[0].message.content or ""
+            message = completion.choices[0].message
+            raw_content = message.content  # kann None sein
+
+            # Thinking aus reasoning_content (vLLM Reasoning-API, z.B. Qwen3.5, DeepSeek-R1)
+            thinking: str = getattr(message, "reasoning_content", None) or ""
+
+            # Fallback: inline <think>...</think> aus Content extrahieren
+            content = raw_content or ""
+            if not thinking and "<think>" in content:
+                think_match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
+                if think_match:
+                    thinking = think_match.group(1).strip()
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+            response_type = _classify_response(raw_content, thinking)
+            if response_type != "answer":
+                logger.warning(
+                    "Unerwarteter Response-Typ für %s: %s (thinking=%d chars)",
+                    prompt[:60],
+                    response_type,
+                    len(thinking),
+                )
+
             tokens = completion.usage.completion_tokens if completion.usage else 0
-            return response, latency_ms, tokens
+            return content, thinking, latency_ms, tokens
         except Exception as e:
             latency_ms = (time.monotonic() - start) * 1000
             logger.error("Target-Query fehlgeschlagen: %s", e)
