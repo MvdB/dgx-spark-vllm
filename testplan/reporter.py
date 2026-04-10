@@ -174,16 +174,25 @@ class ReportGenerator:
         model: ModelConfig,
         pb_results: list[PlaybookResult],
     ) -> None:
-        """Schreibe alle Reports für ein Modell und aktualisiere README."""
+        """Schreibe alle Reports für ein Modell. JSON immer zuerst (kritisch),
+        HTML/MD fail-safe — ein Fehler bricht den Lauf nicht ab."""
         safe_name = model.name.replace("/", "_").replace(" ", "_")
+        # JSON: Rohdaten — muss immer geschrieben werden
         self._write_json(safe_name, model, pb_results)
-        self._write_html(safe_name, model, pb_results)
-        self._write_markdown(safe_name, model, pb_results)
+        # HTML + MD: Aufbereitung — Fehler loggen, nicht weiterwerfen
+        for fmt, writer in [("html", self._write_html), ("md", self._write_markdown)]:
+            try:
+                writer(safe_name, model, pb_results)
+            except Exception as e:
+                logger.error("Report-Fehler (%s) für %s: %s", fmt, model.name, e, exc_info=True)
         logger.info("✓ Reports für %s in %s", model.name, self.run_dir)
 
     def update_dashboard(self, all_results: dict[str, tuple[ModelConfig, list[PlaybookResult]]]) -> None:
         """Schreibe/aktualisiere README.md mit allen bisherigen Modellen."""
-        self._write_readme(all_results)
+        try:
+            self._write_readme(all_results)
+        except Exception as e:
+            logger.error("Dashboard-Fehler: %s", e, exc_info=True)
         logger.info("✓ Dashboard aktualisiert: %s", self.run_dir / "README.md")
 
     # ------------------------------------------------------------------
@@ -238,7 +247,7 @@ class ReportGenerator:
                 lines += [
                     f"### 🚫 {ko.test_id} ({ko.evaluator})",
                     "",
-                    f"> {ko.reasoning[:500]}",
+                    f"> {str(ko.reasoning)[:500]}",
                     "",
                 ]
 
@@ -254,7 +263,7 @@ class ReportGenerator:
             ]
             for r in pb.results:
                 emoji = VERDICT_EMOJI.get(r.verdict.value, "")
-                reasoning = r.reasoning[:200].replace("\n", " ").replace("|", "\\|")
+                reasoning = str(r.reasoning)[:200].replace("\n", " ").replace("|", "\\|")
                 lines.append(
                     f"| {r.test_id} "
                     f"| {emoji} {r.verdict.value.upper()} "
@@ -386,7 +395,7 @@ class ReportGenerator:
             })
 
         all_knockouts = [
-            {"test_id": ko.test_id, "evaluator": ko.evaluator, "reasoning": ko.reasoning[:400]}
+            {"test_id": ko.test_id, "evaluator": ko.evaluator, "reasoning": str(ko.reasoning)[:400]}
             for pb in pb_results for ko in pb.knockouts
         ]
 
@@ -402,7 +411,7 @@ class ReportGenerator:
                         "verdict": r.verdict.value.upper(),
                         "verdict_class": r.verdict.value,
                         "score": f"{r.score * 100:.0f}",
-                        "reasoning": r.reasoning[:200],
+                        "reasoning": str(r.reasoning)[:200],
                     }
                     for r in pb.results
                 ],

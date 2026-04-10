@@ -28,10 +28,20 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+# .env laden falls vorhanden (vor Config-Import, damit Env-Vars gesetzt sind)
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 from lib.config import ModelConfig, TestplanConfig
 from lib.testdata import TestDataLoader

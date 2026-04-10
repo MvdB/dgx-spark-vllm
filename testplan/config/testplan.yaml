@@ -16,13 +16,13 @@ infrastructure:
   # hf_models_dir: defaults to $HF_MODELS_DIR or ~/hf_models
 
   judge:
-    # Spark A — statischer Judge, läuft während gesamtem Testlauf
-    host: "gb10-rack"
-    port: 8000
-    model: "/hf_models/mistralai--Ministral-3-14B-Instruct-2512"  # API-Modell-ID (von vLLM geliefert)
-    profile: "Ministral-3-14B-Instruct"                            # vllm_spark.sh --model Pattern
-    hf_models_dir: "/home/${USER}/vllm-model-store"
-    startup_timeout: 600
+    # Externer Judge via LiteLLM-Proxy — api_key gesetzt → kein SSH-Start.
+    # host/port/api_key über Env-Variablen überschreibbar:
+    #   JUDGE_HOST, JUDGE_PORT, JUDGE_API_KEY
+    host: "${JUDGE_HOST:-gb10-rack}"
+    port: "${JUDGE_PORT:-8000}"
+    model: "${JUDGE_MODEL:-/hf_models/mistralai--Ministral-3-14B-Instruct-2512}"
+    # api_key: leer lassen → wird aus JUDGE_API_KEY gelesen; gesetzt → externer Judge
     persistent: true
 
   target:
@@ -85,18 +85,18 @@ models:
     active: false
     notes: "Kleinstes Modell — reiner Infra-Smoke-Test"
 
-  # --- Kohorte A: aktuell in Evaluation ---
+  # --- Kohorte A: inaktiv ---
   - name: "Devstral-Small-24B"
     profile: "mistralai--Devstral-Small-2-24B-Instruct-2512"
     machine: "machine_a"
     tags: ["cohort_a", "dense", "instruct"]
-    active: true
+    active: false
 
   - name: "Ministral3-14B"
     profile: "mistralai--Ministral-3-14B-Instruct-2512"
     machine: "machine_a"
     tags: ["cohort_a", "dense", "instruct"]
-    active: true
+    active: false
     system_prompt: *default_system_prompt
 
   - name: "gpt-oss-20b"
@@ -106,7 +106,37 @@ models:
     active: false
     notes: "Inkompatibel offline: HarmonyError beim Start (vocab file download required)"
 
-  # --- Kohorte B: geplant ---
+  # --- Kohorte B: aktuelle Evaluation ---
+  - name: "Qwen3.5-35B-A3B"
+    profile: "Qwen--Qwen3.5-35B-A3B-GPTQ-Int4"
+    machine: "machine_a"
+    tags: ["cohort_b", "moe", "instruct"]
+    active: true
+    system_prompt: *default_system_prompt
+
+  - name: "Gemma-4-26B-A4B"
+    profile: "google--gemma-4-26B-A4B-it"
+    machine: "machine_a"
+    tags: ["cohort_b", "moe", "instruct"]
+    active: true
+    system_prompt: *default_system_prompt
+    notes: "v0.19.0+; MoE + Interleaved Attention → enforce_eager"
+
+  - name: "Gemma-4-31B"
+    profile: "google--gemma-4-31B-it"
+    machine: "machine_a"
+    tags: ["cohort_b", "dense", "instruct"]
+    active: true
+    system_prompt: *default_system_prompt
+    notes: "v0.19.0+; Interleaved Attention → enforce_eager; 131072 ctx"
+
+  - name: "gpt-oss-120b"
+    profile: "openai--gpt-oss-120b"
+    machine: "machine_b"
+    tags: ["cohort_b", "dense", "instruct"]
+    active: true
+    system_prompt: *default_system_prompt
+
   - name: "Qwen3.5-122B-A10B"
     profile: "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4"
     machine: "machine_b"
@@ -119,7 +149,7 @@ models:
     machine: "machine_b"
     tags: ["cohort_b", "mamba_moe", "long_context"]
     active: true
-    notes: "v0.18.0+, MARLIN + TRITON_ATTN; Startup 5-10 Min auf DGX Spark"
+    notes: "MARLIN + TRITON_ATTN; Startup 5-10 Min auf DGX Spark"
     system_prompt: *default_system_prompt
 
   - name: "Mistral-Small-4"
@@ -127,37 +157,23 @@ models:
     machine: "machine_b"
     tags: ["cohort_b", "moe", "custom_vllm"]
     active: true
-    notes: "Custom image spark-mistral-small4:v1 erforderlich (docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .)"
+    notes: "Custom image spark-mistral-small4:v1 erforderlich"
     system_prompt: *default_system_prompt
 
-  # --- Gemma 4 Modelle (neu, v0.19.0+) ---
-  - name: "Gemma-4-31B"
-    profile: "google--gemma-4-31B-it"
-    machine: "machine_a"
-    tags: ["extra", "dense", "instruct"]
-    active: false
-    notes: "v0.19.0+; Interleaved Attention → enforce_eager; 131072 ctx"
-
-  - name: "Gemma-4-26B-A4B"
-    profile: "google--gemma-4-26B-A4B-it"
-    machine: "machine_a"
-    tags: ["extra", "moe", "instruct"]
-    active: false
-    notes: "v0.19.0+; MoE + Interleaved Attention → enforce_eager"
-
+  # --- Weitere Gemma (inaktiv) ---
   - name: "Gemma-4-E4B"
     profile: "google--gemma-4-E4B-it"
     machine: "machine_a"
     tags: ["extra", "dense", "multimodal"]
     active: false
-    notes: "v0.19.0+; Audio-Input ungetestet — Text/Vision empfohlen"
+    notes: "v0.19.0+; Audio-Input ungetestet"
 
   - name: "Gemma-4-E2B"
     profile: "google--gemma-4-E2B-it"
     machine: "machine_a"
     tags: ["extra", "dense", "multimodal"]
     active: false
-    notes: "v0.19.0+; Audio-Input ungetestet — Text/Vision empfohlen"
+    notes: "v0.19.0+; Audio-Input ungetestet"
 
 # ---------------------------------------------------------------------------
 # Testdaten

@@ -34,7 +34,7 @@ def parse_json_response(text: str, default_score: float = 3.0) -> tuple[float, s
     # Direkt parsen
     try:
         data = json.loads(stripped)
-        return float(data.get("score", default_score)), data.get("reasoning", "")
+        return float(data.get("score", default_score)), str(data.get("reasoning", ""))
     except (json.JSONDecodeError, ValueError):
         pass
 
@@ -43,7 +43,7 @@ def parse_json_response(text: str, default_score: float = 3.0) -> tuple[float, s
     if json_match:
         try:
             data = json.loads(json_match.group())
-            return float(data.get("score", default_score)), data.get("reasoning", "")
+            return float(data.get("score", default_score)), str(data.get("reasoning", ""))
         except (json.JSONDecodeError, ValueError):
             pass
 
