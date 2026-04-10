@@ -36,9 +36,10 @@ class VllmInstance:
 
     def get_client(self) -> OpenAI:
         if self.client is None:
+            api_key = getattr(self.endpoint, "api_key", "") or "not-needed"
             self.client = OpenAI(
                 base_url=self.api_url,
-                api_key="not-needed",  # vLLM braucht keinen echten Key
+                api_key=api_key,
             )
         return self.client
 
@@ -101,10 +102,13 @@ class VllmController:
 
         logger.info("Starte %s auf %s ...", model.name, host)
 
-        # Bestehenden Container stoppen (gleicher Name oder Port belegt)
-        self._exec(host, f"docker rm -f {container_name} 2>/dev/null || true")
+        # Alle Container mit diesem Namen oder auf diesem Port entfernen (inkl. gestoppte)
         port = endpoint.port
-        self._exec(host, f"docker ps -q --filter publish={port} | xargs -r docker rm -f 2>/dev/null || true")
+        self._exec(host, (
+            f"docker ps -aq --filter name=^/{container_name}$ | xargs -r docker rm -f 2>/dev/null || true && "
+            f"docker ps -aq --filter publish={port} | xargs -r docker rm -f 2>/dev/null || true && "
+            f"sleep 2"
+        ))
 
         # vllm_spark.sh im Non-Interactive-Modus starten.
         # docker run -d ist bereits im Script → Script endet nach dem Start selbst.
@@ -179,8 +183,10 @@ class VllmController:
         logger.info("✓ %s gestoppt", instance.container_name)
 
     def ensure_judge_running(self, judge_config: JudgeConfig) -> VllmInstance:
-        """Stelle sicher, dass der Judge läuft. Starte bei Bedarf."""
-        # Prüfe ob bereits erreichbar
+        """Stelle sicher, dass der Judge läuft. Starte bei Bedarf.
+
+        Externer Judge (api_key gesetzt): kein SSH-Start, direkt verbinden.
+        """
         instance = VllmInstance(
             endpoint=judge_config,
             model=ModelConfig(
@@ -191,6 +197,11 @@ class VllmController:
             container_name="vllm-judge",
         )
 
+        if judge_config.api_key:
+            # Externer Judge — kein SSH-Start, nur Erreichbarkeit prüfen
+            logger.info("Externer Judge: %s (Modell: %s)", judge_config.base_url, judge_config.model)
+            return instance
+
         try:
             self._wait_for_ready(instance, timeout=10)
             logger.info("Judge bereits aktiv auf %s", judge_config.base_url)
@@ -198,8 +209,7 @@ class VllmController:
         except TimeoutError:
             pass
 
-        # Judge starten – profile-Feld als vllm_spark.sh-Pattern nutzen,
-        # falls angegeben; sonst model-Feld (HF-ID) als Fallback.
+        # Lokalen Judge starten
         judge_pattern = judge_config.profile or judge_config.model
         return self.start_model(
             judge_config,

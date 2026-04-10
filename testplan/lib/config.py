@@ -37,6 +37,7 @@ class JudgeConfig(EndpointConfig):
     model: str = "mistralai/Mistral-Small-24B-Instruct-2501"
     profile: str = ""    # vllm_spark.sh --model Pattern; falls leer → model-Feld
     persistent: bool = True
+    api_key: str = ""    # Gesetzt → externer Judge (kein SSH-Start)
 
 
 @dataclass
@@ -117,15 +118,16 @@ class TestplanConfig:
 
         jc = infra["judge"]
         judge = JudgeConfig(
-            host=jc["host"],
-            port=jc.get("port", 8000),
-            model=jc["model"],
+            host=os.environ.get("JUDGE_HOST", _expand(jc["host"])),
+            port=int(os.environ.get("JUDGE_PORT", str(jc.get("port", 8000)))),
+            model=os.environ.get("JUDGE_MODEL", _expand(jc.get("model", ""))),
             profile=jc.get("profile", ""),
             vllm_spark_path=_expand(jc.get("vllm_spark_path", global_spark_path)),
             startup_timeout=jc.get("startup_timeout", 600),
             persistent=jc.get("persistent", True),
             ssh_user=jc.get("ssh_user", global_ssh_user),
             hf_models_dir=_expand(jc.get("hf_models_dir", os.environ.get("HF_MODELS_DIR", ""))),
+            api_key=os.environ.get("JUDGE_API_KEY", jc.get("api_key", "")),
         )
 
         tc = infra["target"]
