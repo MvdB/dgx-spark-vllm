@@ -121,7 +121,7 @@ class QualityEvaluator(BaseEvaluator):
     def evaluate(self, test_case: TestCase) -> EvalResult:
         """Bewerte einen Qualitäts-Testfall."""
         # 1. Antwort vom Zielmodell holen
-        response, latency_ms, tokens = self.query_target(
+        response, thinking, latency_ms, tokens = self.query_target(
             prompt=test_case.prompt,
             system_prompt=test_case.system_prompt,
         )
@@ -132,17 +132,41 @@ class QualityEvaluator(BaseEvaluator):
             subcat, (FACTUAL_JUDGE_SYSTEM, None)
         )
 
-        # 3. Judge-Bewertung einholen
+        # 3. Response klassifizieren
+        from .base import _classify_response
+        response_type = _classify_response(None if response == "" and not thinking else response or None, thinking)
+
+        # 4. Leere / nicht-bewertbare Antwort abfangen
+        if not response:
+            logger.warning(
+                "Leere Antwort von Zielmodell für %s (type=%s, thinking=%d chars) — kein Judge-Aufruf",
+                test_case.id, response_type, len(thinking),
+            )
+            return EvalResult(
+                test_id=test_case.id,
+                model=self.target_model,
+                evaluator=f"quality.{subcat}",
+                verdict=Verdict.ERROR,
+                score=0.0,
+                response="",
+                reasoning=f"Zielmodell lieferte keine Antwort (response_type={response_type})",
+                latency_ms=latency_ms,
+                tokens_generated=tokens,
+                thinking=thinking,
+                response_type=response_type,
+            )
+
+        # 5. Judge-Bewertung einholen
         judge_prompt = self._build_judge_prompt(test_case, response)
         judge_response = self.query_judge(
             prompt=judge_prompt,
             system_prompt=judge_system,
         )
 
-        # 4. Judge-Antwort parsen
+        # 6. Judge-Antwort parsen
         score, reasoning = self._parse_judge_response(judge_response)
 
-        # 5. Verdict bestimmen
+        # 7. Verdict bestimmen
         normalized_score = score / 5.0  # 1-5 → 0.0-1.0
         verdict = self._determine_verdict(subcat, normalized_score, test_case)
 
@@ -156,6 +180,8 @@ class QualityEvaluator(BaseEvaluator):
             reasoning=reasoning,
             latency_ms=latency_ms,
             tokens_generated=tokens,
+            thinking=thinking,
+            response_type=response_type,
             metadata={"judge_raw": judge_response[:500]},
         )
 

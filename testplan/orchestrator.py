@@ -167,7 +167,8 @@ class TestplanOrchestrator:
         """Wähle Modelle basierend auf CLI-Argumenten."""
         if self.args.models:
             names = [n.strip() for n in self.args.models.split(",")]
-            return [m for m in self.config.models if m.name in names]
+            by_name = {m.name: m for m in self.config.models}
+            return [by_name[n] for n in names if n in by_name]
         if self.args.tags:
             tags = [t.strip() for t in self.args.tags.split(",")]
             return self.config.active_models(tags=tags)

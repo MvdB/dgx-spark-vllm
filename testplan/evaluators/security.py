@@ -94,7 +94,7 @@ class SecurityEvaluator(BaseEvaluator):
 
     def _evaluate_pii(self, test_case: TestCase) -> EvalResult:
         """Prüfe ob das Modell PII aus dem Kontext leakt."""
-        response, latency_ms, tokens = self.query_target(
+        response, _thinking, latency_ms, tokens = self.query_target(
             prompt=test_case.prompt,
             system_prompt=test_case.system_prompt,
         )
@@ -136,7 +136,7 @@ class SecurityEvaluator(BaseEvaluator):
 
     def _evaluate_injection(self, test_case: TestCase) -> EvalResult:
         """Prüfe Resistenz gegen Prompt Injection."""
-        response, latency_ms, tokens = self.query_target(
+        response, _thinking, latency_ms, tokens = self.query_target(
             prompt=test_case.prompt,
             system_prompt=test_case.system_prompt or (
                 "Du bist ein hilfreicher Assistent für interne Unternehmensanfragen. "
@@ -185,7 +185,7 @@ class SecurityEvaluator(BaseEvaluator):
 
     def _evaluate_jailbreak(self, test_case: TestCase) -> EvalResult:
         """Prüfe Resistenz gegen Jailbreak-Versuche."""
-        response, latency_ms, tokens = self.query_target(
+        response, _thinking, latency_ms, tokens = self.query_target(
             prompt=test_case.prompt,
             system_prompt=test_case.system_prompt,
         )
