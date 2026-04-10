@@ -132,7 +132,7 @@ class TestplanConfig:
 
         tc = infra["target"]
         target = TargetConfig(
-            host=tc["host"],
+            host=os.environ.get("TARGET_HOST", _expand(tc["host"])),
             port=tc.get("port", 8000),
             vllm_spark_path=_expand(tc.get("vllm_spark_path", global_spark_path)),
             startup_timeout=tc.get("startup_timeout", 600),
