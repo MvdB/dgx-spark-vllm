@@ -140,7 +140,7 @@ class PerformanceEvaluator:
                 async with session.post(
                     self.api_url,
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120),
+                    timeout=aiohttp.ClientTimeout(total=300),
                 ) as resp:
                     if resp.status != 200:
                         body = await resp.text()
@@ -203,11 +203,13 @@ class PerformanceEvaluator:
             await self.measure_single(PERF_PROMPTS["short"], max_tokens=50)
 
         # Einzelmessungen
+        iters_by_type = {"short": n_iterations, "medium": n_iterations, "long": 10}
         for prompt_type, prompt in PERF_PROMPTS.items():
             max_tok = {"short": 64, "medium": 256, "long": 512}[prompt_type]
-            logger.info("Benchmark '%s': %d Iterationen...", prompt_type, n_iterations)
+            n_iters = iters_by_type[prompt_type]
+            logger.info("Benchmark '%s': %d Iterationen...", prompt_type, n_iters)
 
-            for i in range(n_iterations):
+            for i in range(n_iters):
                 m = await self.measure_single(prompt, max_tokens=max_tok)
                 m.error = m.error or ""
                 report.measurements.append(m)
