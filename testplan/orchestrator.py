@@ -392,13 +392,15 @@ class TestplanOrchestrator:
             violations = perf.check_thresholds(report, self.config.thresholds)
 
             summary = report.summary()
-            verdict = Verdict.FAIL if violations else Verdict.PASS
+            # Performance-Schwellenwerte sind Richtwerte für große Modelle auf DGX Spark —
+            # Verletzungen werden als WARN gewertet, nicht als FAIL/K.O.
+            verdict = Verdict.WARN if violations else Verdict.PASS
             results.append(EvalResult(
                 test_id="perf_benchmark",
                 model=target_model,
                 evaluator="performance",
                 verdict=verdict,
-                score=1.0 if not violations else 0.5,
+                score=1.0 if not violations else 0.7,
                 response=json.dumps(summary, indent=2),
                 reasoning="; ".join(violations) if violations else "Alle Schwellenwerte eingehalten",
                 metadata=summary,
