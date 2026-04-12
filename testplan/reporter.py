@@ -153,6 +153,112 @@ HTML_MODEL_TEMPLATE = """\
 """
 
 
+HTML_DASHBOARD_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>LLM-Testplan Dashboard — {{ run_ts }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         max-width: 1200px; margin: 0 auto; padding: 2rem; color: #333; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: 0.5rem; }
+  h2 { color: #1e40af; margin-top: 2rem; }
+  .meta { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+          padding: 0.8rem 1.2rem; margin-bottom: 1.5rem; display: flex; gap: 2rem; flex-wrap: wrap; }
+  .meta span { font-size: 0.9rem; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+  th, td { border: 1px solid #d1d5db; padding: 0.45rem 0.75rem; text-align: left; }
+  th { background: #f3f4f6; font-weight: 600; }
+  tr:hover { background: #f9fafb; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .pass  { color: #059669; font-weight: 600; }
+  .warn  { color: #d97706; font-weight: 600; }
+  .fail  { color: #dc2626; font-weight: 600; }
+  .ko    { background: #dc2626; color: #fff; padding: 0.15rem 0.5rem;
+           border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+  .ok    { background: #059669; color: #fff; padding: 0.15rem 0.5rem;
+           border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+  .cell-pass { background: #d1fae5; text-align: center; }
+  .cell-warn { background: #fef3c7; text-align: center; }
+  .cell-fail { background: #fee2e2; text-align: center; }
+  .cell-na   { background: #f3f4f6; text-align: center; color: #9ca3af; }
+  .status-ko   { background: #fef2f2; }
+  .status-fail { background: #fffbeb; }
+  .status-pass { background: #f0fdf4; }
+  td.model-name { font-weight: 600; white-space: nowrap; }
+  .legend { font-size: 0.8rem; color: #6b7280; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>LLM-Testplan — Dashboard</h1>
+<div class="meta">
+  <span><strong>Testlauf:</strong> {{ run_ts }}</span>
+  <span><strong>Judge:</strong> {{ judge }}</span>
+  <span><strong>Modelle:</strong> {{ models|length }}</span>
+  <span><strong>Generiert:</strong> {{ generated }}</span>
+</div>
+
+<h2>Übersicht</h2>
+<table>
+  <tr>
+    <th>Modell</th>
+    <th>Status</th>
+    {% for pb in pb_names %}<th>{{ pb }}</th>{% endfor %}
+    <th>K.O.</th>
+    <th>Bericht</th>
+  </tr>
+  {% for m in models %}
+  <tr class="status-{{ m.row_class }}">
+    <td class="model-name">{{ m.name }}</td>
+    <td>
+      {% if m.overall == 'K.O.' %}<span class="ko">K.O.</span>
+      {% elif m.overall == 'PASS' %}<span class="ok">PASS</span>
+      {% elif m.overall == 'FAIL' %}<span class="fail">❌ FAIL</span>
+      {% else %}<span class="warn">⚠️ {{ m.overall }}</span>{% endif %}
+    </td>
+    {% for cell in m.cells %}
+    <td class="cell-{{ cell.cls }}">{{ cell.label }}</td>
+    {% endfor %}
+    <td style="text-align:center">
+      {% if m.ko_count > 0 %}<span class="ko">{{ m.ko_count }}</span>{% else %}–{% endif %}
+    </td>
+    <td><a href="{{ m.safe_name }}.html">Details</a></td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="legend">
+  Zellen: <span style="background:#d1fae5;padding:0 4px">≥80% PASS</span>
+  <span style="background:#fef3c7;padding:0 4px">60–79% WARN</span>
+  <span style="background:#fee2e2;padding:0 4px">&lt;60% FAIL</span>
+</p>
+
+<h2>Freigabenstatus</h2>
+<table>
+  <tr><th>Modell</th><th>Status</th><th>K.O.-Ursachen</th><th>Freigabe durch</th><th>Datum</th></tr>
+  {% for m in models %}
+  <tr>
+    <td class="model-name">{{ m.name }}</td>
+    <td>
+      {% if m.overall == 'K.O.' %}<span class="ko">K.O.</span>
+      {% elif m.overall == 'PASS' %}<span class="ok">PASS</span>
+      {% else %}<span class="fail">{{ m.overall }}</span>{% endif %}
+    </td>
+    <td style="font-size:0.85rem">{{ m.ko_reasons }}</td>
+    <td></td>
+    <td></td>
+  </tr>
+  {% endfor %}
+</table>
+
+<hr style="margin-top:2rem;border:none;border-top:1px solid #e5e7eb">
+<p style="font-size:0.8rem;color:#9ca3af">Generiert: {{ generated }} — KI-Plattform On-Premise Evaluation</p>
+</body>
+</html>
+"""
+
+
 class ReportGenerator:
     """Erzeugt Testberichte in Markdown, HTML und JSON."""
 
@@ -188,11 +294,15 @@ class ReportGenerator:
         logger.info("✓ Reports für %s in %s", model.name, self.run_dir)
 
     def update_dashboard(self, all_results: dict[str, tuple[ModelConfig, list[PlaybookResult]]]) -> None:
-        """Schreibe/aktualisiere README.md mit allen bisherigen Modellen."""
+        """Schreibe/aktualisiere README.md und index.html mit allen bisherigen Modellen."""
         try:
             self._write_readme(all_results)
         except Exception as e:
             logger.error("Dashboard-Fehler: %s", e, exc_info=True)
+        try:
+            self._write_index_html(all_results)
+        except Exception as e:
+            logger.error("Dashboard-HTML-Fehler: %s", e, exc_info=True)
         logger.info("✓ Dashboard aktualisiert: %s", self.run_dir / "README.md")
 
     # ------------------------------------------------------------------
@@ -287,6 +397,65 @@ class ReportGenerator:
 
         path = self.run_dir / f"{safe_name}.md"
         path.write_text("\n".join(lines), encoding="utf-8")
+
+    def _write_index_html(
+        self,
+        all_results: dict[str, tuple[ModelConfig, list[PlaybookResult]]],
+    ) -> None:
+        # Collect all playbook names in order
+        all_pb_names: list[str] = []
+        for _, (_, pb_results) in all_results.items():
+            for pb in pb_results:
+                if pb.playbook not in all_pb_names:
+                    all_pb_names.append(pb.playbook)
+
+        pb_short_names = [PLAYBOOK_SHORT.get(p, p) for p in all_pb_names]
+
+        models_data = []
+        for model_name, (model, pb_results) in all_results.items():
+            summary = self._model_summary(pb_results)
+            pb_map = {pb.playbook: pb for pb in pb_results}
+
+            cells = []
+            for pb_name in all_pb_names:
+                if pb_name in pb_map:
+                    pb = pb_map[pb_name]
+                    rate = pb.pass_rate * 100
+                    ko_mark = "🚫" if pb.knockouts else ""
+                    label = f"{rate:.0f}%{ko_mark}"
+                    cls = "pass" if rate >= 80 else ("warn" if rate >= 60 else "fail")
+                else:
+                    label, cls = "–", "na"
+                cells.append({"label": label, "cls": cls})
+
+            # K.O. reasons: which playbooks triggered K.O.
+            ko_reasons = ", ".join(
+                PLAYBOOK_SHORT.get(pb.playbook, pb.playbook)
+                for pb in pb_results if pb.knockouts
+            )
+
+            overall = summary["overall"]
+            row_class = "ko" if overall == "K.O." else ("fail" if overall == "FAIL" else "pass")
+
+            models_data.append({
+                "name": model_name,
+                "safe_name": model_name.replace("/", "_").replace(" ", "_"),
+                "overall": overall,
+                "row_class": row_class,
+                "cells": cells,
+                "ko_count": summary["knockouts"],
+                "ko_reasons": ko_reasons or "–",
+            })
+
+        html = Template(HTML_DASHBOARD_TEMPLATE).render(
+            run_ts=self.run_timestamp.replace("_", " "),
+            judge=self.config.judge.model,
+            pb_names=pb_short_names,
+            models=models_data,
+            generated=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+        path = self.run_dir / "index.html"
+        path.write_text(html, encoding="utf-8")
 
     def _write_readme(
         self,
