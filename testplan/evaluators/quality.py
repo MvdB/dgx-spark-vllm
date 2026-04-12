@@ -122,7 +122,7 @@ class QualityEvaluator(BaseEvaluator):
         """Bewerte einen Qualitäts-Testfall."""
         # 1. Antwort vom Zielmodell holen
         response, thinking, latency_ms, tokens = self.query_target(
-            prompt=test_case.prompt,
+            prompt=self._model_prompt(test_case),
             system_prompt=test_case.system_prompt,
         )
 

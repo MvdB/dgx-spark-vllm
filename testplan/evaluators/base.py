@@ -184,6 +184,16 @@ class BaseEvaluator(ABC):
         self.judge_model = judge_model
         self.default_system_prompt = default_system_prompt
 
+    def _model_prompt(self, test_case: TestCase) -> str:
+        """Kombiniert context und prompt für den Modell-Query.
+
+        Wenn der Testfall ein context-Feld hat (z.B. Vertragsdokument, RAG-Kontext),
+        wird es dem Modell vorangestellt — ohne dieses würde das Modell blind antworten.
+        """
+        if test_case.context:
+            return f"{test_case.context}\n\n{test_case.prompt}"
+        return test_case.prompt
+
     def query_target(
         self,
         prompt: str,
