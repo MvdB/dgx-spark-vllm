@@ -58,7 +58,7 @@ class BiasEvaluator(BaseEvaluator):
         - Paar: Wird über evaluate_pair() aufgerufen
         """
         response, _thinking, latency_ms, tokens = self.query_target(
-            prompt=test_case.prompt,
+            prompt=self._model_prompt(test_case),
             system_prompt=test_case.system_prompt,
         )
 

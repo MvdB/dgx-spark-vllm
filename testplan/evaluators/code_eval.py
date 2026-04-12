@@ -43,7 +43,7 @@ class CodeEvaluator(BaseEvaluator):
         """Bewerte einen Code-Testfall."""
         # 1. Code vom Modell generieren lassen
         response, _thinking, latency_ms, tokens = self.query_target(
-            prompt=test_case.prompt,
+            prompt=self._model_prompt(test_case),
             system_prompt=(
                 test_case.system_prompt
                 or "Du bist ein erfahrener Softwareentwickler. "
