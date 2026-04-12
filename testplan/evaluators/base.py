@@ -213,6 +213,7 @@ class BaseEvaluator(ABC):
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                timeout=300,
             )
             latency_ms = (time.monotonic() - start) * 1000
             message = completion.choices[0].message
