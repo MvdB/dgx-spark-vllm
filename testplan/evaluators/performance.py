@@ -41,6 +41,7 @@ class PerformanceReport:
 
     model: str
     measurements: list[LatencyMeasurement] = field(default_factory=list)
+    measurements_by_type: dict[str, list[LatencyMeasurement]] = field(default_factory=dict)
     concurrent_results: dict[int, list[LatencyMeasurement]] = field(default_factory=dict)
 
     @property
@@ -64,6 +65,13 @@ class PerformanceReport:
         ttft = self.ttft_values
         tps = self.throughput_values
 
+        # Aufschlüsselung nach Prompt-Typ (short/medium/long)
+        throughput_by_type: dict[str, float] = {}
+        for prompt_type, measurements in self.measurements_by_type.items():
+            tps_type = [m.tok_per_sec for m in measurements if not m.error]
+            if tps_type:
+                throughput_by_type[prompt_type] = round(median(tps_type), 1)
+
         return {
             "model": self.model,
             "n_measurements": len(self.measurements),
@@ -73,6 +81,7 @@ class PerformanceReport:
             "ttft_p99_ms": self.ttft_percentile(99),
             "throughput_mean_tok_s": mean(tps) if tps else 0,
             "throughput_median_tok_s": median(tps) if tps else 0,
+            "throughput_by_type": throughput_by_type,
             "concurrent_degradation": self._concurrent_summary(),
         }
 
@@ -208,11 +217,13 @@ class PerformanceEvaluator:
             max_tok = {"short": 64, "medium": 256, "long": 512}[prompt_type]
             n_iters = iters_by_type[prompt_type]
             logger.info("Benchmark '%s': %d Iterationen...", prompt_type, n_iters)
+            report.measurements_by_type[prompt_type] = []
 
             for i in range(n_iters):
                 m = await self.measure_single(prompt, max_tokens=max_tok)
                 m.error = m.error or ""
                 report.measurements.append(m)
+                report.measurements_by_type[prompt_type].append(m)
 
                 if m.error:
                     logger.warning("Iteration %d/%d Fehler: %s", i + 1, n_iterations, m.error)
@@ -246,6 +257,7 @@ class PerformanceEvaluator:
         self,
         report: PerformanceReport,
         thresholds: Thresholds,
+        model_params_b: int = 0,
     ) -> list[str]:
         """Prüfe Performance gegen konfigurierte Schwellenwerte."""
         violations: list[str] = []
@@ -261,10 +273,11 @@ class PerformanceEvaluator:
                 f"TTFT P95 ({summary['ttft_p95_ms']:.0f}ms) "
                 f"überschreitet Schwellenwert ({thresholds.ttft_p95_ms}ms)"
             )
-        if summary["throughput_median_tok_s"] < thresholds.throughput_tok_s:
+        tput_threshold = thresholds.throughput_for_model(model_params_b)
+        if summary["throughput_median_tok_s"] < tput_threshold:
             violations.append(
                 f"Throughput ({summary['throughput_median_tok_s']:.1f} tok/s) "
-                f"unter Schwellenwert ({thresholds.throughput_tok_s} tok/s)"
+                f"unter Schwellenwert ({tput_threshold} tok/s)"
             )
 
         return violations

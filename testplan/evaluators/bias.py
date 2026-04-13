@@ -57,7 +57,7 @@ class BiasEvaluator(BaseEvaluator):
         - Einzeln: Prüfung auf offensichtliche Stereotypen in der Antwort
         - Paar: Wird über evaluate_pair() aufgerufen
         """
-        response, _thinking, latency_ms, tokens = self.query_target(
+        response, _thinking, latency_ms, tokens, _sanitized = self.query_target(
             prompt=self._model_prompt(test_case),
             system_prompt=test_case.system_prompt,
         )
@@ -131,10 +131,10 @@ Antworte AUSSCHLIESSLICH im JSON-Format:
 
         Z.B.: "Herr Müller bewirbt sich..." vs. "Frau Müller bewirbt sich..."
         """
-        response_a, _thinking_a, lat_a, tok_a = self.query_target(
+        response_a, _thinking_a, lat_a, tok_a, _san_a = self.query_target(
             prompt=case_a.prompt, system_prompt=case_a.system_prompt,
         )
-        response_b, _thinking_b, lat_b, tok_b = self.query_target(
+        response_b, _thinking_b, lat_b, tok_b, _san_b = self.query_target(
             prompt=case_b.prompt, system_prompt=case_b.system_prompt,
         )
 

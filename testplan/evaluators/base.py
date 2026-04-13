@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from openai import OpenAI
+import unicodedata
+
+from openai import OpenAI, APIStatusError
 
 from lib.testdata import TestCase
 
@@ -29,6 +31,31 @@ _SAFETY_PATTERNS = re.compile(
     r"entschuldigung,? aber ich)\b",
     re.IGNORECASE,
 )
+
+
+_TOKENIZER_ERROR_PATTERN = re.compile(
+    r"unexpected tokens remaining in message header|could not decode header",
+    re.IGNORECASE,
+)
+
+# Sonderzeichen die tiktoken-basierte Tokenizer aus dem Takt bringen können
+_NBSP_VARIANTS = re.compile(r"[\u00a0\u2007\u202f\u2060\ufeff]")
+# <|...|>-Muster die als Special Tokens interpretiert werden könnten
+_SPECIAL_TOKEN_PATTERN = re.compile(r"<\|[^|>]{1,30}\|>")
+
+
+def _sanitize_prompt(text: str) -> str:
+    """Normalisiere Prompt für Tokenizer-kompatible Darstellung.
+
+    Angewendet als Fallback nach HTTP-500-Tokenizer-Fehler.
+    - NFKC-Normalisierung (z.B. non-breaking spaces → standard)
+    - Verbleibende NBSP-Varianten → Leerzeichen
+    - <|special|>-Token-Artefakte entfernen
+    """
+    text = unicodedata.normalize("NFKC", text)
+    text = _NBSP_VARIANTS.sub(" ", text)
+    text = _SPECIAL_TOKEN_PATTERN.sub("", text)
+    return text
 
 
 def _classify_response(content: str | None, thinking: str) -> str:
@@ -217,6 +244,7 @@ class BaseEvaluator(ABC):
         messages.append({"role": "user", "content": prompt})
 
         start = time.monotonic()
+        sanitized = False
         try:
             completion = self.target_client.chat.completions.create(
                 model=self.target_model,
@@ -225,6 +253,39 @@ class BaseEvaluator(ABC):
                 temperature=temperature,
                 timeout=300,
             )
+        except APIStatusError as e:
+            if e.status_code == 500 and _TOKENIZER_ERROR_PATTERN.search(str(e)):
+                logger.warning(
+                    "Tokenizer-Fehler (500) für '%s' — sanitisiere Prompt und retry",
+                    prompt[:80],
+                )
+                sanitized = True
+                clean_messages = [
+                    {**msg, "content": _sanitize_prompt(msg["content"])}
+                    for msg in messages
+                ]
+                try:
+                    completion = self.target_client.chat.completions.create(
+                        model=self.target_model,
+                        messages=clean_messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout=300,
+                    )
+                except Exception as retry_e:
+                    latency_ms = (time.monotonic() - start) * 1000
+                    logger.error("Retry nach Sanitisierung fehlgeschlagen: %s", retry_e)
+                    raise
+            else:
+                latency_ms = (time.monotonic() - start) * 1000
+                logger.error("Target-Query fehlgeschlagen: %s", e)
+                raise
+        except Exception as e:
+            latency_ms = (time.monotonic() - start) * 1000
+            logger.error("Target-Query fehlgeschlagen: %s", e)
+            raise
+
+        try:
             latency_ms = (time.monotonic() - start) * 1000
             message = completion.choices[0].message
             raw_content = message.content  # kann None sein
@@ -240,6 +301,14 @@ class BaseEvaluator(ABC):
                     thinking = think_match.group(1).strip()
                     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
+            # Fallback: Modell hat nur thinking geliefert, kein Content (Reasoning-Modell)
+            if not content and thinking:
+                logger.warning(
+                    "Modell lieferte nur thinking_content, kein Content — verwende thinking als Antwort: %s",
+                    prompt[:60],
+                )
+                content = thinking
+
             response_type = _classify_response(raw_content, thinking)
             if response_type != "answer":
                 logger.warning(
@@ -250,7 +319,9 @@ class BaseEvaluator(ABC):
                 )
 
             tokens = completion.usage.completion_tokens if completion.usage else 0
-            return content, thinking, latency_ms, tokens
+            if sanitized:
+                logger.info("Prompt-Sanitisierung erfolgreich für '%s'", prompt[:80])
+            return content, thinking, latency_ms, tokens, sanitized
         except Exception as e:
             latency_ms = (time.monotonic() - start) * 1000
             logger.error("Target-Query fehlgeschlagen: %s", e)
