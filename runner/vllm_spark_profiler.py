@@ -89,6 +89,49 @@ KNOWN_GOOD = {
             "max_model_len=32768 mit evtl. KV-Eviction für lange Kontexte."
         ),
     },
+    # ── Phi-4-reasoning-plus ─────────────────────────────────────────────────
+    # 14B Dense BF16 ~28 GB. Phi3ForCausalLM. Reasoning via <think>...</think>
+    # tags → deepseek_r1 parser. Keine spezielle Quantisierung.
+    "microsoft--Phi-4-reasoning-plus": {
+        "PROFILE_VLLM_COMPATIBLE":          1,
+        "PROFILE_GPU_MEM_UTIL":             "0.85",
+        "PROFILE_MAX_MODEL_LEN":            32768,
+        "PROFILE_MAX_NUM_SEQS":             4,
+        "PROFILE_KV_CACHE_DTYPE":           "fp8",
+        "PROFILE_REASONING_PARSER":         "deepseek_r1",
+        "PROFILE_NOTES": (
+            "Phi-4-reasoning-plus 14B Dense BF16 ~28 GB. Phi3ForCausalLM. "
+            "Reasoning via <think>...</think>-Tags → deepseek_r1-Parser. "
+            "max_model_len=32768 (natives Maximum)."
+        ),
+    },
+    # ── Nemotron-3-Nano-30B-A3B FP8 ─────────────────────────────────────────
+    # NemotronH MoE-Mamba-Hybrid. Gleiche Architektur wie Nemotron-3-Super,
+    # benötigt identische Setup: vllm/vllm-openai:v0.18.0 + TRITON_ATTN + trust_remote_code.
+    # FP8-Quantisierung: quant_method nicht in config.json (vLLM autoerkennung).
+    # 30B FP8 ~30 GB, 52 Layer, 2 KV-Heads, head_dim=128.
+    # KV-Bytes/Token: 52 × 2 × 2 × 128 × 1 = 26.624 B → sehr kleiner KV-Bedarf.
+    "nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-FP8": {
+        "PROFILE_VLLM_COMPATIBLE":          1,
+        "PROFILE_GPU_MEM_UTIL":             "0.88",
+        "PROFILE_MAX_MODEL_LEN":            131072,
+        "PROFILE_MAX_NUM_SEQS":             4,
+        "PROFILE_KV_CACHE_DTYPE":           "fp8",
+        "PROFILE_ENFORCE_EAGER":            1,
+        "PROFILE_TRUST_REMOTE_CODE":        1,
+        "PROFILE_ATTENTION_BACKEND":        "TRITON_ATTN",
+        "PROFILE_REASONING_PARSER":         "deepseek_r1",
+        "PROFILE_DOCKER_IMAGE":             "vllm/vllm-openai:v0.18.0",
+        "PROFILE_DOCKER_ENV": (
+            "VLLM_ENGINE_CORE_STARTUP_TIMEOUT=300"
+        ),
+        "PROFILE_NOTES": (
+            "Nemotron-3-Nano 30B A3B FP8. NemotronH MoE-Mamba-Hybrid (auto_map → custom code). "
+            "Gleiche Anforderungen wie Nemotron-3-Super: vllm/vllm-openai:v0.18.0 + TRITON_ATTN. "
+            "52 Layer, 2 KV-Heads, head_dim=128 → sehr kleiner KV-Bedarf (26 KB/Token). "
+            "trust_remote_code=1 für auto_map (NemotronHForCausalLM)."
+        ),
+    },
     # ── Gemma 4 (google) ──────────────────────────────────────────────────────
     # Alle Varianten: vllm/vllm-openai:v0.19.0+ erforderlich (Gemma4ForConditionalGeneration).
     # Architektur: Interleaved Sliding/Global Attention (layer_types: 5 sliding + 1 full).
@@ -144,15 +187,17 @@ KNOWN_GOOD = {
         "PROFILE_GPU_MEM_UTIL":            "0.80",
         "PROFILE_MAX_MODEL_LEN":           131072,
         "PROFILE_MAX_NUM_SEQS":            4,
+        "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_DOCKER_IMAGE":            "spark-gemma4:v1",
         "PROFILE_NOTES": (
             "Gemma 4 E4B. 42 Layer (7 full, 35 sliding), sliding_window=512. "
             "BF16 ~8 GB + Audio/Vision-Encoder. "
             "Nur Full-Attention-Layer skalieren mit Kontext: 7 × 2 × 512 × 2 = 14.336 B/Token. "
             "Bei 4 Seq. und 131072 Token ~7 GB KV-Cache. "
             "Audio-Input: encoder vorhanden, vLLM-Support ungetestet – Text/Vision empfohlen. "
-            "Benötigt vllm/vllm-openai:v0.19.0+."
+            "Benötigt spark-gemma4:v1 (vllm/vllm-openai:v0.19.0+ Basis)."
         ),
     },
     "google--gemma-4-E2B-it": {
@@ -160,15 +205,17 @@ KNOWN_GOOD = {
         "PROFILE_GPU_MEM_UTIL":            "0.80",
         "PROFILE_MAX_MODEL_LEN":           131072,
         "PROFILE_MAX_NUM_SEQS":            4,
+        "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_DOCKER_IMAGE":            "spark-gemma4:v1",
         "PROFILE_NOTES": (
             "Gemma 4 E2B. 35 Layer (7 full, 28 sliding), sliding_window=512. "
             "BF16 ~4 GB + Audio/Vision-Encoder. "
             "Nur Full-Attention-Layer skalieren mit Kontext: 7 × 1 × 512 × 2 = 7.168 B/Token. "
             "Bei 4 Seq. und 131072 Token ~3,5 GB KV-Cache. "
             "Audio-Input: encoder vorhanden, vLLM-Support ungetestet – Text/Vision empfohlen. "
-            "Benötigt vllm/vllm-openai:v0.19.0+."
+            "Benötigt spark-gemma4:v1 (vllm/vllm-openai:v0.19.0+ Basis)."
         ),
     },
     # ── Mistral-Small-4 119B NVFP4 ───────────────────────────────────────────
@@ -212,10 +259,13 @@ KNOWN_GOOD = {
 # ── Architektur-Hints ──────────────────────────────────────────────────────
 # Werden auf auto-berechnete Profile angewendet.
 ARCH_HINTS = {
+    # Interleaved linear_attention / full_attention → enforce_eager pflicht
     "Qwen3_5ForConditionalGeneration": {
+        "enforce_eager":           1,
         "reasoning_parser":        "qwen3",
         "tool_call_parser":        "qwen3_coder",
         "enable_auto_tool_choice": 1,
+        "check_mtp":               True,
     },
     "Qwen3_5MoeForConditionalGeneration": {
         "enforce_eager":           1,
