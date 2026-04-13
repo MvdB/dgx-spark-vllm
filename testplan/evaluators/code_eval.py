@@ -42,7 +42,7 @@ class CodeEvaluator(BaseEvaluator):
     def evaluate(self, test_case: TestCase) -> EvalResult:
         """Bewerte einen Code-Testfall."""
         # 1. Code vom Modell generieren lassen
-        response, _thinking, latency_ms, tokens = self.query_target(
+        response, _thinking, latency_ms, tokens, _sanitized = self.query_target(
             prompt=self._model_prompt(test_case),
             system_prompt=(
                 test_case.system_prompt

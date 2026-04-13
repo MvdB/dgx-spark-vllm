@@ -121,7 +121,7 @@ class QualityEvaluator(BaseEvaluator):
     def evaluate(self, test_case: TestCase) -> EvalResult:
         """Bewerte einen Qualitäts-Testfall."""
         # 1. Antwort vom Zielmodell holen
-        response, thinking, latency_ms, tokens = self.query_target(
+        response, thinking, latency_ms, tokens, _sanitized = self.query_target(
             prompt=self._model_prompt(test_case),
             system_prompt=test_case.system_prompt,
         )

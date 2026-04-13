@@ -54,6 +54,7 @@ class ModelConfig:
     active: bool = True
     notes: str = ""
     system_prompt: str = ""
+    params_b: int = 0   # Gesamtparameter in Milliarden (0 = unbekannt)
 
 
 @dataclass
@@ -69,10 +70,18 @@ class Thresholds:
     german_quality_target: float = 0.85
     ttft_p50_ms: int = 500
     ttft_p95_ms: int = 2000
-    throughput_tok_s: int = 30
+    throughput_tok_s: int = 30          # < throughput_large_min_b
+    throughput_tok_s_large: int = 10    # >= throughput_large_min_b
+    throughput_large_min_b: int = 60    # Grenze in Milliarden Parametern
     concurrent_requests: int = 50
     hsf_uncertainty: float = 0.25
     hsf_min_samples: int = 50
+
+    def throughput_for_model(self, params_b: int) -> int:
+        """Gibt den passenden Throughput-Schwellenwert für die Modellgröße zurück."""
+        if params_b > 0 and params_b >= self.throughput_large_min_b:
+            return self.throughput_tok_s_large
+        return self.throughput_tok_s
 
 
 @dataclass
@@ -150,6 +159,7 @@ class TestplanConfig:
                 active=m.get("active", True),
                 notes=m.get("notes", ""),
                 system_prompt=m.get("system_prompt", ""),
+                params_b=m.get("params_b", 0),
             )
             for m in raw["models"]
         ]
@@ -168,6 +178,8 @@ class TestplanConfig:
             ttft_p50_ms=t["performance"]["ttft_p50_ms"],
             ttft_p95_ms=t["performance"]["ttft_p95_ms"],
             throughput_tok_s=t["performance"]["throughput_tok_s"],
+            throughput_tok_s_large=t["performance"].get("throughput_tok_s_large", 10),
+            throughput_large_min_b=t["performance"].get("throughput_large_min_b", 60),
             concurrent_requests=t["performance"]["concurrent_requests"],
             hsf_uncertainty=t["hsf"]["uncertainty_corridor"],
             hsf_min_samples=t["hsf"]["min_samples"],

@@ -389,12 +389,29 @@ class TestplanOrchestrator:
                 model=target_model,
             )
             report = asyncio.run(perf.run_benchmark())
-            violations = perf.check_thresholds(report, self.config.thresholds)
+            violations = perf.check_thresholds(report, self.config.thresholds, model.params_b)
 
             summary = report.summary()
             # Performance-Schwellenwerte sind Richtwerte für große Modelle auf DGX Spark —
             # Verletzungen werden als WARN gewertet, nicht als FAIL/K.O.
             verdict = Verdict.WARN if violations else Verdict.PASS
+            tput_threshold = self.config.thresholds.throughput_for_model(model.params_b)
+            by_type = summary.get("throughput_by_type", {})
+            tput_detail = "  ".join(
+                f"{t}={v} tok/s" for t, v in by_type.items()
+            )
+            metrics_line = (
+                f"TTFT P50={summary['ttft_p50_ms']:.0f}ms  "
+                f"P95={summary['ttft_p95_ms']:.0f}ms  |  "
+                f"Throughput {summary['throughput_median_tok_s']:.1f} tok/s Median "
+                f"(Threshold {tput_threshold} tok/s)  |  "
+                + (f"{tput_detail}  |  " if tput_detail else "")
+                + f"Messungen={summary['n_measurements']}  Fehler={summary['n_errors']}"
+            )
+            if violations:
+                reasoning = metrics_line + "  |  ⚠ " + "; ".join(violations)
+            else:
+                reasoning = metrics_line + "  |  ✓ Alle Schwellenwerte eingehalten"
             results.append(EvalResult(
                 test_id="perf_benchmark",
                 model=target_model,
@@ -402,7 +419,7 @@ class TestplanOrchestrator:
                 verdict=verdict,
                 score=1.0 if not violations else 0.7,
                 response=json.dumps(summary, indent=2),
-                reasoning="; ".join(violations) if violations else "Alle Schwellenwerte eingehalten",
+                reasoning=reasoning,
                 metadata=summary,
             ))
 
