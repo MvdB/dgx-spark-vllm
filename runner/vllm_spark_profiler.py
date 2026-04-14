@@ -90,19 +90,16 @@ KNOWN_GOOD = {
         ),
     },
     # ── Phi-4-reasoning-plus ─────────────────────────────────────────────────
-    # 14B Dense BF16 ~28 GB. Phi3ForCausalLM. Reasoning via <think>...</think>
-    # tags → deepseek_r1 parser. Keine spezielle Quantisierung.
+    # INKOMPATIBEL: Modell bleibt in endlosem Reasoning-Loop hängen, trifft
+    # max_tokens ohne finales Answer zu produzieren.
+    # vLLM-Issue: https://github.com/vllm-project/vllm/issues/18141
+    # Status: closed "not planned" — kein Fix verfügbar.
     "microsoft--Phi-4-reasoning-plus": {
-        "PROFILE_VLLM_COMPATIBLE":          1,
-        "PROFILE_GPU_MEM_UTIL":             "0.85",
-        "PROFILE_MAX_MODEL_LEN":            32768,
-        "PROFILE_MAX_NUM_SEQS":             4,
-        "PROFILE_KV_CACHE_DTYPE":           "fp8",
-        "PROFILE_REASONING_PARSER":         "deepseek_r1",
+        "PROFILE_VLLM_COMPATIBLE":          0,
         "PROFILE_NOTES": (
-            "Phi-4-reasoning-plus 14B Dense BF16 ~28 GB. Phi3ForCausalLM. "
-            "Reasoning via <think>...</think>-Tags → deepseek_r1-Parser. "
-            "max_model_len=32768 (natives Maximum)."
+            "INKOMPATIBEL mit vLLM. Modell hängt in endlosem Thinking-Loop "
+            "(hits max_tokens ohne finales Answer). "
+            "vLLM-Issue #18141 — closed 'not planned', kein Fix verfügbar."
         ),
     },
     # ── Nemotron-3-Nano-30B-A3B FP8 ─────────────────────────────────────────
