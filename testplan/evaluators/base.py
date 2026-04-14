@@ -227,6 +227,7 @@ class BaseEvaluator(ABC):
         system_prompt: str = "",
         max_tokens: int = 2048,
         temperature: float = 0.1,
+        timeout: int = 300,
     ) -> tuple[str, str, float, int]:
         """Sende Anfrage an das Zielmodell.
 
@@ -251,7 +252,7 @@ class BaseEvaluator(ABC):
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                timeout=300,
+                timeout=timeout,
             )
         except APIStatusError as e:
             if e.status_code == 500 and _TOKENIZER_ERROR_PATTERN.search(str(e)):
@@ -270,7 +271,7 @@ class BaseEvaluator(ABC):
                         messages=clean_messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
-                        timeout=300,
+                        timeout=timeout,
                     )
                 except Exception as retry_e:
                     latency_ms = (time.monotonic() - start) * 1000

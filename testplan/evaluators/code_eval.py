@@ -51,6 +51,7 @@ class CodeEvaluator(BaseEvaluator):
                    "Gib NUR den Code zurück, keine Erklärungen."
             ),
             max_tokens=4096,
+            timeout=600,
         )
 
         # 2. Code extrahieren
