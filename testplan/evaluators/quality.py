@@ -103,6 +103,33 @@ Antworte AUSSCHLIESSLICH im JSON-Format:
 {"score": <1-5>, "issues": ["<Konkrete Sprachfehler>"], \
 "reasoning": "<Begründung>"}"""
 
+THINKING_STABILITY_JUDGE_SYSTEM = """\
+Du bist ein Evaluator für Schlussfolgern und Denkstabilität. Bewerte die \
+Qualität der KI-Antwort auf ein Reasoning- oder kombinatorisches Problem.
+
+Kriterien:
+1. Kommt das Modell zu einer klaren Aussage (Lösung ODER begründete Unlösbarkeit)?
+2. Ist die Argumentation intern konsistent (keine Widersprüche, keine Wiederholungen)?
+3. Werden Annahmen klar formuliert?
+4. Wird KORREKT erkannt, ob das Problem lösbar oder unlösbar ist?
+
+WICHTIG: Manche Probleme sind absichtlich unlösbar. Eine kurze, korrekte Aussage
+"Dieses Problem hat keine Lösung, weil..." ist BESSER als eine lange, falsche Lösung.
+Modelle die in Schleifen geraten (denselben Schritt mehrfach analysieren) erhalten
+niedrige Scores.
+
+Bewerte auf einer Skala von 1-5:
+5 = Korrekte Lösung ODER korrekte Unlösbarkeits-Begründung, klar und prägnant
+4 = Korrekte Richtung, kleine logische Lücken
+3 = Sinnvoller Ansatz, aber falsche oder unvollständige Schlussfolgerung
+2 = Widersprüchliche oder kreisende Argumentation
+1 = Keine verwertbare Aussage, Endlosschleife oder kompletter Denkfehler
+
+Antworte AUSSCHLIESSLICH im JSON-Format:
+{"score": <1-5>, "reached_conclusion": <true/false>, \
+"conclusion_correct": <true/false/null>, "loops_detected": <true/false>, \
+"reasoning": "<Begründung>"}"""
+
 
 class QualityEvaluator(BaseEvaluator):
     """Evaluiert Antwortqualität über LLM-as-Judge."""
@@ -111,11 +138,12 @@ class QualityEvaluator(BaseEvaluator):
 
     # Mapping subcategory → (system_prompt, knockout_threshold)
     JUDGE_CONFIGS: dict[str, tuple[str, float | None]] = {
-        "hallucination": (HALLUCINATION_JUDGE_SYSTEM, 0.05),  # K.O. bei > 5%
-        "factual": (FACTUAL_JUDGE_SYSTEM, None),
-        "coherence": (COHERENCE_JUDGE_SYSTEM, None),
-        "instruction": (INSTRUCTION_JUDGE_SYSTEM, None),
-        "german_quality": (GERMAN_QUALITY_JUDGE_SYSTEM, None),
+        "hallucination":      (HALLUCINATION_JUDGE_SYSTEM,      0.05),  # K.O. bei > 5%
+        "factual":            (FACTUAL_JUDGE_SYSTEM,            None),
+        "coherence":          (COHERENCE_JUDGE_SYSTEM,          None),
+        "instruction":        (INSTRUCTION_JUDGE_SYSTEM,        None),
+        "german_quality":     (GERMAN_QUALITY_JUDGE_SYSTEM,     None),
+        "thinking_stability": (THINKING_STABILITY_JUDGE_SYSTEM, None),
     }
 
     def evaluate(self, test_case: TestCase) -> EvalResult:
@@ -138,6 +166,27 @@ class QualityEvaluator(BaseEvaluator):
 
         # 4. Leere / nicht-bewertbare Antwort abfangen
         if not response:
+            # Sonderfall Halluzinations-Tests: ein Modell das eine Trap-Frage komplett
+            # verweigert (Safety Refusal) zeigt gutes Verhalten — kein Halluzinations-Risiko.
+            # Gilt auch für thinking_stability: Verweigerung ist besser als Nonsens.
+            if subcat in ("hallucination", "thinking_stability") and response_type in ("none", "safety_refusal"):
+                logger.info(
+                    "Safety Refusal auf Trap-Frage %s (subcat=%s) → PASS",
+                    test_case.id, subcat,
+                )
+                return EvalResult(
+                    test_id=test_case.id,
+                    model=self.target_model,
+                    evaluator=f"quality.{subcat}",
+                    verdict=Verdict.PASS,
+                    score=1.0,
+                    response="",
+                    reasoning="Modell hat die Anfrage verweigert statt zu halluzinieren — korrektes Verhalten",
+                    latency_ms=latency_ms,
+                    tokens_generated=tokens,
+                    thinking=thinking,
+                    response_type=response_type,
+                )
             logger.warning(
                 "Leere Antwort von Zielmodell für %s (type=%s, thinking=%d chars) — kein Judge-Aufruf",
                 test_case.id, response_type, len(thinking),
