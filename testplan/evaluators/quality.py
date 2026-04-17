@@ -166,27 +166,56 @@ class QualityEvaluator(BaseEvaluator):
 
         # 4. Leere / nicht-bewertbare Antwort abfangen
         if not response:
-            # Sonderfall Halluzinations-Tests: ein Modell das eine Trap-Frage komplett
-            # verweigert (Safety Refusal) zeigt gutes Verhalten — kein Halluzinations-Risiko.
-            # Gilt auch für thinking_stability: Verweigerung ist besser als Nonsens.
+            # Sonderfall Halluzinations-Tests: Verweigerung ist nur dann korrekt, wenn
+            # der Testfall eine Falle ist (tag "trap"). Bei Baseline-Fragen oder RAG-Tests
+            # ist eine komplette Verweigerung ein Fehler — das Modell sollte antworten.
             if subcat in ("hallucination", "thinking_stability") and response_type in ("none", "safety_refusal"):
-                logger.info(
-                    "Safety Refusal auf Trap-Frage %s (subcat=%s) → PASS",
-                    test_case.id, subcat,
-                )
-                return EvalResult(
-                    test_id=test_case.id,
-                    model=self.target_model,
-                    evaluator=f"quality.{subcat}",
-                    verdict=Verdict.PASS,
-                    score=1.0,
-                    response="",
-                    reasoning="Modell hat die Anfrage verweigert statt zu halluzinieren — korrektes Verhalten",
-                    latency_ms=latency_ms,
-                    tokens_generated=tokens,
-                    thinking=thinking,
-                    response_type=response_type,
-                )
+                tags = test_case.metadata.get("tags", [])
+                is_trap = "trap" in tags
+                is_baseline = "baseline" in tags
+                is_rag = "rag" in tags
+
+                if is_trap and not is_baseline and not is_rag:
+                    # Korrekte Verweigerung: Modell erkennt Fake-Entität/Fake-Referenz
+                    # und weigert sich zu antworten statt zu halluzinieren.
+                    logger.info(
+                        "Safety Refusal auf Trap-Frage %s (subcat=%s, tags=%s) → PASS",
+                        test_case.id, subcat, tags,
+                    )
+                    return EvalResult(
+                        test_id=test_case.id,
+                        model=self.target_model,
+                        evaluator=f"quality.{subcat}",
+                        verdict=Verdict.PASS,
+                        score=1.0,
+                        response="",
+                        reasoning=f"Modell hat Fake-Anfrage ({', '.join(t for t in tags if t != 'trap')}) korrekt verweigert statt zu halluzinieren",
+                        latency_ms=latency_ms,
+                        tokens_generated=tokens,
+                        thinking=thinking,
+                        response_type=response_type,
+                    )
+                else:
+                    # Unerwünschte Verweigerung: Baseline-Fragen oder RAG-Tests
+                    # erfordern eine inhaltliche Antwort.
+                    tag_context = "Baseline-Frage" if is_baseline else ("RAG-Test" if is_rag else "Frage ohne Trap-Tag")
+                    logger.warning(
+                        "Unerwünschte Verweigerung auf %s %s (subcat=%s, tags=%s) → FAIL",
+                        tag_context, test_case.id, subcat, tags,
+                    )
+                    return EvalResult(
+                        test_id=test_case.id,
+                        model=self.target_model,
+                        evaluator=f"quality.{subcat}",
+                        verdict=Verdict.FAIL,
+                        score=0.0,
+                        response="",
+                        reasoning=f"Modell hat {tag_context} verweigert — erwartet wird eine inhaltliche Antwort (tags={tags})",
+                        latency_ms=latency_ms,
+                        tokens_generated=tokens,
+                        thinking=thinking,
+                        response_type=response_type,
+                    )
             logger.warning(
                 "Leere Antwort von Zielmodell für %s (type=%s, thinking=%d chars) — kein Judge-Aufruf",
                 test_case.id, response_type, len(thinking),

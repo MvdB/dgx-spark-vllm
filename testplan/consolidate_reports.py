@@ -29,23 +29,21 @@ REPORTS_DIR = Path(__file__).parent / "reports"
 # ---------------------------------------------------------------------------
 CANONICAL: dict[str, tuple[str, str, list[str], int]] = {
     # name → (run_dir, profile, tags, params_b)
-    # --- Kohorte B ---
-    "Gemma-4-26B-A4B":   ("2026-04-12_1838", "google--gemma-4-26B-A4B-it",                         ["cohort_b", "moe", "instruct"],        26),
-    "Gemma-4-31B":        ("2026-04-12_1838", "google--gemma-4-31B-it",                              ["cohort_b", "dense", "instruct"],      31),
-    "Qwen3.5-35B-A3B":    ("2026-04-12_1838", "Qwen--Qwen3.5-35B-A3B-GPTQ-Int4",                   ["cohort_b", "moe", "instruct"],        35),
-    "Qwen3.5-122B-A10B":  ("2026-04-12_1838", "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4",                 ["cohort_b", "moe", "large"],           122),
-    "Nemotron-3-Super":   ("2026-04-12_1838", "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",    ["cohort_b", "mamba_moe"],             120),
-    "Mistral-Small-4":    ("2026-04-12_1838", "mistralai--Mistral-Small-4-119B-2603-NVFP4",         ["cohort_b", "moe", "custom_vllm"],    119),
-    "gpt-oss-120b":       ("2026-04-12_1838", "openai--gpt-oss-120b",                               ["cohort_b", "dense", "instruct"],     120),
-    # --- Kohorte C ---
-    "Qwen3.5-27B":              ("2026-04-14_1836", "Qwen--Qwen3.5-27B-GPTQ-Int4",                   ["cohort_c", "dense", "instruct"],      27),
-    "Nemotron-3-Nano-30B":      ("2026-04-14_1836", "nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",    ["cohort_c", "mamba_moe", "reasoning"], 30),
-    "Ministral-3-14B-Reasoning":("2026-04-14_2349", "mistralai--Ministral-3-14B-Reasoning-2512",     ["cohort_c", "dense", "reasoning"],     14),
-    "Ministral-3-14B-Instruct": ("2026-04-13_2239", "mistralai--Ministral-3-14B-Instruct-2512",      ["cohort_c", "dense", "instruct"],      14),
-    "Mistral-Small-3.2-24B":    ("2026-04-13_2239", "mistralai--Mistral-Small-3.2-24B-Instruct-2506",["cohort_c", "dense", "instruct"],      24),
-    "Gemma-4-E4B":              ("2026-04-13_2239", "google--gemma-4-E4B-it",                        ["cohort_c", "dense", "multimodal"],     4),
-    "Gemma-4-E2B":              ("2026-04-13_2239", "google--gemma-4-E2B-it",                        ["cohort_c", "dense", "multimodal"],     2),
-    "Phi-4-reasoning-plus":     ("2026-04-13_2239", "microsoft--Phi-4-reasoning-plus",               ["cohort_c", "dense", "reasoning"],     14),
+    # --- Re-Run alle Kohorten (2026-04-15_1341) — 20 Hal-Tests, Safety-Refusal-Fix ---
+    "Gemma-4-26B-A4B":          ("2026-04-15_1341", "google--gemma-4-26B-A4B-it",                          ["cohort_b", "moe", "instruct"],        26),
+    "Gemma-4-31B":              ("2026-04-15_1341", "google--gemma-4-31B-it",                               ["cohort_b", "dense", "instruct"],      31),
+    "Qwen3.5-35B-A3B":          ("2026-04-15_1341", "Qwen--Qwen3.5-35B-A3B-GPTQ-Int4",                    ["cohort_b", "moe", "instruct"],        35),
+    "Qwen3.5-122B-A10B":        ("2026-04-15_1341", "Qwen--Qwen3.5-122B-A10B-GPTQ-Int4",                  ["cohort_b", "moe", "large"],           122),
+    "Nemotron-3-Super":         ("2026-04-15_1341", "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",     ["cohort_b", "mamba_moe"],             120),
+    "Mistral-Small-4":          ("2026-04-15_1341", "mistralai--Mistral-Small-4-119B-2603-NVFP4",          ["cohort_b", "moe", "custom_vllm"],    119),
+    "gpt-oss-120b":             ("2026-04-15_1341", "openai--gpt-oss-120b",                                ["cohort_b", "dense", "instruct"],     120),
+    "Qwen3.5-27B":              ("2026-04-15_1341", "Qwen--Qwen3.5-27B-GPTQ-Int4",                        ["cohort_c", "dense", "instruct"],      27),
+    "Nemotron-3-Nano-30B":      ("2026-04-15_1341", "nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",         ["cohort_c", "mamba_moe", "reasoning"], 30),
+    "Ministral-3-14B-Reasoning":("2026-04-15_1341", "mistralai--Ministral-3-14B-Reasoning-2512",          ["cohort_c", "dense", "reasoning"],     14),
+    "Ministral-3-14B-Instruct": ("2026-04-15_1341", "mistralai--Ministral-3-14B-Instruct-2512",           ["cohort_c", "dense", "instruct"],      14),
+    "Mistral-Small-3.2-24B":    ("2026-04-15_1341", "mistralai--Mistral-Small-3.2-24B-Instruct-2506",     ["cohort_c", "dense", "instruct"],      24),
+    "Gemma-4-E4B":              ("2026-04-15_1341", "google--gemma-4-E4B-it",                              ["cohort_c", "dense", "multimodal"],     4),
+    "Gemma-4-E2B":              ("2026-04-15_1341", "google--gemma-4-E2B-it",                              ["cohort_c", "dense", "multimodal"],     2),
 }
 
 
