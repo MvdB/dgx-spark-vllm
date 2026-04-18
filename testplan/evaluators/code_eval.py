@@ -54,7 +54,23 @@ class CodeEvaluator(BaseEvaluator):
             timeout=600,
         )
 
-        # 2. Code extrahieren
+        # 2. Leere Antwort abfangen — Verweigerung/technischer Fehler, kein FAIL
+        if not response:
+            from .base import _classify_response
+            response_type = _classify_response(None, _thinking)
+            return EvalResult(
+                test_id=test_case.id,
+                model=self.target_model,
+                evaluator="code",
+                verdict=Verdict.ERROR,
+                score=0.0,
+                response="",
+                reasoning=f"Modell lieferte keine Antwort (response_type={response_type})",
+                latency_ms=latency_ms,
+                tokens_generated=tokens,
+            )
+
+        # 3. Code extrahieren
         code = self._extract_code(response)
         if not code:
             return EvalResult(
@@ -69,15 +85,15 @@ class CodeEvaluator(BaseEvaluator):
                 tokens_generated=tokens,
             )
 
-        # 3. Funktionale Korrektheit prüfen
+        # 4. Funktionale Korrektheit prüfen
         exec_result = None
         if test_case.expected.type == "code_exec":
             exec_result = self._execute_code(code, test_case)
 
-        # 4. SAST prüfen
+        # 5. SAST prüfen
         sast_result = self._run_sast(code)
 
-        # 5. Judge-Bewertung
+        # 6. Judge-Bewertung
         judge_prompt = (
             f"## Aufgabe\n{test_case.prompt}\n\n"
             f"## Generierter Code\n```\n{code}\n```"
@@ -94,7 +110,7 @@ class CodeEvaluator(BaseEvaluator):
 
         score, reasoning = self._parse_judge(judge_response)
 
-        # 6. Verdict bestimmen
+        # 7. Verdict bestimmen
         verdict = self._determine_verdict(
             score=score,
             exec_result=exec_result,
