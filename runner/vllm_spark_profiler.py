@@ -256,17 +256,18 @@ KNOWN_GOOD = {
 # ── Architektur-Hints ──────────────────────────────────────────────────────
 # Werden auf auto-berechnete Profile angewendet.
 ARCH_HINTS = {
-    # Interleaved linear_attention / full_attention → enforce_eager pflicht
+    # Interleaved linear_attention / full_attention → enforce_eager pflicht.
+    # Kein reasoning_parser: Qwen3.5 unterstützt Thinking-Mode optional, aber
+    # kleine Modelle (≤9B) produzieren nur <think>-Tokens ohne Inhalt → content=None.
+    # Thinking nur explizit in KNOWN_GOOD aktivieren (z.B. 122B).
     "Qwen3_5ForConditionalGeneration": {
         "enforce_eager":           1,
-        "reasoning_parser":        "qwen3",
         "tool_call_parser":        "qwen3_coder",
         "enable_auto_tool_choice": 1,
         "check_mtp":               True,
     },
     "Qwen3_5MoeForConditionalGeneration": {
         "enforce_eager":           1,
-        "reasoning_parser":        "qwen3",
         "tool_call_parser":        "qwen3_coder",
         "enable_auto_tool_choice": 1,
         "check_mtp":               True,
