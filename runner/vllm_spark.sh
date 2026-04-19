@@ -394,6 +394,9 @@ fetch_vllm_help_once() {
     # Image uses plain bash entrypoint — query help via bash wrapper
     VLLM_HELP_CACHE="$(docker run --rm --gpus all --entrypoint "" "${image}" \
       /bin/bash -lc "vllm serve --help=all" 2>&1 || true)"
+  elif [[ "${image}" == nvcr.io/nvidia/vllm:* ]]; then
+    # NVIDIA Spark image: entrypoint does exec "$@", must pass full "vllm serve" command
+    VLLM_HELP_CACHE="$(docker run --rm --gpus all "${image}" vllm serve --help=all 2>&1 || true)"
   else
     # Standard vllm/vllm-openai image: ENTRYPOINT is already "vllm serve"
     VLLM_HELP_CACHE="$(docker run --rm --gpus all "${image}" --help=all 2>&1 || true)"
@@ -642,6 +645,9 @@ stage_run_vllm() {
     entrypoint_args=(--entrypoint "")
     # shellcheck disable=SC2145
     vllm_cmd=(/bin/bash -lc "vllm serve ${vllm_args[*]@Q}" )
+  elif [[ "${EFFECTIVE_IMAGE}" == nvcr.io/nvidia/vllm:* ]]; then
+    # NVIDIA Spark image: entrypoint does exec "$@" → must pass "vllm serve <model> <args>"
+    vllm_cmd=(vllm serve "${vllm_args[@]}")
   else
     vllm_cmd=("${vllm_args[@]}")
   fi
