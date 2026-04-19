@@ -130,7 +130,7 @@ KNOWN_GOOD = {
         ),
     },
     # ── Gemma 4 (google) ──────────────────────────────────────────────────────
-    # Alle Varianten: vllm/vllm-openai:v0.19.0+ erforderlich (Gemma4ForConditionalGeneration).
+    # Alle Varianten: vllm/vllm-openai:v0.19.1+ erforderlich (Gemma4ForConditionalGeneration).
     # Architektur: Interleaved Sliding/Global Attention (layer_types: 5 sliding + 1 full).
     # KV-Budget-Berechnung: nur Full-Attention-Layer skalieren linear mit Kontext.
     # Sliding-Layer sind durch die Fenstergröße begrenzt und haben keinen
@@ -152,7 +152,7 @@ KNOWN_GOOD = {
             "BF16 ~52 GB. MoE (128 Experten, top-8) + Interleaved Attention → enforce_eager. "
             "Nur Full-Attention-Layer skalieren mit Kontext: 5 × 2 × 512 × 2 = 10.240 B/Token. "
             "Bei 2 Seq. und 131072 Token nur ~2,6 GB KV-Cache. "
-            "Benötigt vllm/vllm-openai:v0.19.0+."
+            "Benötigt vllm/vllm-openai:v0.19.1+."
         ),
     },
     # 31B Dense · 60 Layer (10 full, 50 sliding) · BF16 ~62 GB
@@ -172,7 +172,7 @@ KNOWN_GOOD = {
             "Nur Full-Attention-Layer skalieren mit Kontext: 10 × 4 × 512 × 2 = 40.960 B/Token. "
             "Bei 2 Seq. und 131072 Token ~10,2 GB KV-Cache (Budget ~48 GB). "
             "Auf 262144 erhöhbar (~20 GB KV), dann max_num_seqs=1 empfohlen. "
-            "Benötigt vllm/vllm-openai:v0.19.0+."
+            "Benötigt vllm/vllm-openai:v0.19.1+."
         ),
     },
     # E2B · 35 Layer (7 full, 28 sliding) · BF16 ~4 GB (+ Audio-Encoder)
@@ -194,7 +194,7 @@ KNOWN_GOOD = {
             "Nur Full-Attention-Layer skalieren mit Kontext: 7 × 2 × 512 × 2 = 14.336 B/Token. "
             "Bei 4 Seq. und 131072 Token ~7 GB KV-Cache. "
             "Audio-Input: encoder vorhanden, vLLM-Support ungetestet – Text/Vision empfohlen. "
-            "Benötigt spark-gemma4:v1 (vllm/vllm-openai:v0.19.0+ Basis)."
+            "Benötigt spark-gemma4:v1 (vllm/vllm-openai:v0.19.1+ Basis)."
         ),
     },
     "google--gemma-4-E2B-it": {
@@ -212,7 +212,7 @@ KNOWN_GOOD = {
             "Nur Full-Attention-Layer skalieren mit Kontext: 7 × 1 × 512 × 2 = 7.168 B/Token. "
             "Bei 4 Seq. und 131072 Token ~3,5 GB KV-Cache. "
             "Audio-Input: encoder vorhanden, vLLM-Support ungetestet – Text/Vision empfohlen. "
-            "Benötigt spark-gemma4:v1 (vllm/vllm-openai:v0.19.0+ Basis)."
+            "Benötigt spark-gemma4:v1 (vllm/vllm-openai:v0.19.1+ Basis)."
         ),
     },
     # ── Mistral-Small-4 119B NVFP4 ───────────────────────────────────────────
@@ -495,6 +495,14 @@ def compute_profile(model_dir: str) -> dict:
     has_auto_map     = bool(cfg.get("auto_map"))
     trust_remote     = 1 if (has_auto_map or hints.get("trust_remote_code", 0)) else 0
 
+    # ── tokenizer-mode: MistralCommon (Tekken) ────────────────────────────
+    # Modelle mit tekken.json haben kein tokenizer_config.json. Ohne
+    # --tokenizer-mode mistral scheitert vLLM mit AttributeError in
+    # MistralCommonTokenizer (all_special_ids vs. _all_special_ids).
+    tokenizer_mode = "mistral" if os.path.exists(
+        os.path.join(model_dir, "tekken.json")
+    ) else ""
+
     # ── HF-Overrides ──────────────────────────────────────────────────────
     hf_overrides = ""
     if hints.get("check_mtp"):
@@ -543,6 +551,8 @@ def compute_profile(model_dir: str) -> dict:
         p["PROFILE_HF_OVERRIDES"] = hf_overrides
     if reasoning_parser:
         p["PROFILE_REASONING_PARSER"] = reasoning_parser
+    if tokenizer_mode:
+        p["PROFILE_TOKENIZER_MODE"] = tokenizer_mode
     if tool_call_parser:
         p["PROFILE_TOOL_CALL_PARSER"] = tool_call_parser
     if enable_auto_tool_choice:

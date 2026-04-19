@@ -52,6 +52,13 @@ CANONICAL: dict[str, tuple[str, list[str], int]] = {
     "Qwen3.6-35B-A3B-FP8":          ("Qwen--Qwen3.6-35B-A3B-FP8",                             ["moe", "instruct", "fp8"],             35),
     "gpt-oss-20b":                  ("openai--gpt-oss-20b",                                    ["dense", "instruct"],                  20),
     "gpt-oss-120b":                 ("openai--gpt-oss-120b",                                   ["dense", "instruct"],                 120),
+    # --- Kohorte E ---
+    "Devstral-Small-2-24B":         ("mistralai--Devstral-Small-2-24B-Instruct-2512",          ["dense", "instruct", "fp8"],           24),
+    "Ministral-3-3B-Reasoning":     ("mistralai--Ministral-3-3B-Reasoning-2512",               ["dense", "reasoning"],                  3),
+    "Ministral-3-8B-Instruct":      ("mistralai--Ministral-3-8B-Instruct-2512",                ["dense", "instruct", "fp8"],            8),
+    "Ministral-3-8B-Reasoning":     ("mistralai--Ministral-3-8B-Reasoning-2512",               ["dense", "reasoning"],                  8),
+    "Qwen3.5-27B-FP8":              ("Qwen--Qwen3.5-27B-FP8",                                  ["dense", "instruct", "fp8"],           27),
+    "Qwen3.5-9B-GPTQ-Int4":         ("mssfj--Qwen3.5-9B-GPTQ-INT4",                            ["dense", "instruct", "gptq_int4"],     9),
 }
 
 

@@ -66,9 +66,10 @@ USAGE
 HF_MODELS_DIR="${HF_MODELS_DIR:-${HOME}/hf_models}"
 PROFILER_SCRIPT="$(dirname "$(realpath "$0")")/vllm_spark_profiler.py"
 
-# Offizielles vLLM-Image (Docker Hub). Tag = feste Version; kein Auto-Update.
-IMAGE_REPO="${IMAGE_REPO:-vllm/vllm-openai}"
-DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-v0.19.0}"
+# Primär: NVIDIA DGX Spark-optimiertes vLLM-Image (sm_120-CUTLASS-Patches).
+# Fallback auf vllm/vllm-openai für Modelle die neuere Architekturen benötigen.
+IMAGE_REPO="${IMAGE_REPO:-nvcr.io/nvidia/vllm}"
+DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-26.03.post1-py3}"
 
 CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
 HOST_PORT="${HOST_PORT:-8000}"
