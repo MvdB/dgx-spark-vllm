@@ -145,13 +145,18 @@ class TestplanOrchestrator:
                     model_exit = self._test_model(model, playbooks, judge_instance)
                     exit_code = max(exit_code, model_exit)
                 except Exception as e:
-                    logger.error("Fehler bei %s: %s", model.name, e, exc_info=True)
+                    logger.error(
+                        "Modell %s übersprungen — Fehler: %s", model.name, e, exc_info=True
+                    )
                     exit_code = max(exit_code, 1)
 
                 # Einzel-Report + Dashboard nach jedem Modell aktualisieren
                 if model.name in self.all_results:
-                    self.reporter.generate_single(model, self.all_results[model.name][1])
-                    self.reporter.update_dashboard(self.all_results)
+                    try:
+                        self.reporter.generate_single(model, self.all_results[model.name][1])
+                        self.reporter.update_dashboard(self.all_results)
+                    except Exception as e:
+                        logger.warning("Report für %s fehlgeschlagen: %s", model.name, e)
 
             # Finales Dashboard
             self.reporter.update_dashboard(self.all_results)
