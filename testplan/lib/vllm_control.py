@@ -136,7 +136,12 @@ class VllmController:
             model=model,
             container_name=container_name,
         )
-        self._wait_for_ready(instance, timeout=endpoint.startup_timeout)
+        try:
+            self._wait_for_ready(instance, timeout=endpoint.startup_timeout)
+        except TimeoutError:
+            logger.warning("Startup-Timeout für %s — räume Container auf ...", model.name)
+            self._exec(host, f"docker rm -f {container_name} 2>/dev/null || true")
+            raise
 
         logger.info("✓ %s bereit auf %s", model.name, endpoint.base_url)
         return instance
