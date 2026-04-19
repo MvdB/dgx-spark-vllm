@@ -26,6 +26,14 @@ from lib.config import ModelConfig, TestplanConfig
 
 logger = logging.getLogger("testplan.reporter")
 
+
+def _quant_label(tags: list[str]) -> str:
+    for tag in tags:
+        if tag == "nvfp4":     return "NVFP4"
+        if tag == "fp8":       return "FP8"
+        if tag == "gptq_int4": return "GPTQ-Int4"
+    return "BF16"
+
 # Emoji-Mapping für Verdicts
 VERDICT_EMOJI = {
     "pass": "✅",
@@ -188,6 +196,7 @@ HTML_DASHBOARD_TEMPLATE = """\
   .status-fail { background: #fffbeb; }
   .status-pass { background: #f0fdf4; }
   td.model-name { font-weight: 600; white-space: nowrap; }
+  .quant-label { font-size: 0.75rem; color: #6b7280; font-weight: normal; }
   .legend { font-size: 0.8rem; color: #6b7280; margin-top: 0.5rem; }
 </style>
 </head>
@@ -204,6 +213,7 @@ HTML_DASHBOARD_TEMPLATE = """\
 <table>
   <tr>
     <th>Modell</th>
+    <th>Quant</th>
     <th>Status</th>
     {% for pb in pb_names %}<th>{{ pb }}</th>{% endfor %}
     <th>K.O.</th>
@@ -212,6 +222,7 @@ HTML_DASHBOARD_TEMPLATE = """\
   {% for m in models %}
   <tr class="status-{{ m.row_class }}">
     <td class="model-name">{{ m.name }}</td>
+    <td><span class="quant-label">{{ m.quant }}</span></td>
     <td>
       {% if m.overall == 'K.O.' %}<span class="ko">K.O.</span>
       {% elif m.overall == 'PASS' %}<span class="ok">PASS</span>
@@ -445,6 +456,7 @@ class ReportGenerator:
                 "cells": cells,
                 "ko_count": summary["knockouts"],
                 "ko_reasons": ko_reasons or "–",
+                "quant": _quant_label(model.tags),
             })
 
         html = Template(HTML_DASHBOARD_TEMPLATE).render(
@@ -483,12 +495,13 @@ class ReportGenerator:
 
         header_cols = " | ".join(PLAYBOOK_SHORT.get(p, p) for p in all_pb_names)
         sep_cols = " | ".join("---" for _ in all_pb_names)
-        lines.append(f"| Modell | Status | {header_cols} | Bericht |")
-        lines.append(f"|--------|--------|{sep_cols}|---------|")
+        lines.append(f"| Modell | Quant | Status | {header_cols} | Bericht |")
+        lines.append(f"|--------|-------|--------|{sep_cols}|---------|")
 
         for model_name, (model, pb_results) in all_results.items():
             summary = self._model_summary(pb_results)
             overall = f"{OVERALL_EMOJI.get(summary['overall'], '')} {summary['overall']}"
+            quant = _quant_label(model.tags)
             pb_map = {pb.playbook: pb for pb in pb_results}
             pb_cells = []
             for pb_name in all_pb_names:
@@ -501,7 +514,7 @@ class ReportGenerator:
             pb_str = " | ".join(pb_cells)
             safe_name = model_name.replace("/", "_").replace(" ", "_")
             lines.append(
-                f"| {model_name} | {overall} | {pb_str} | [{model_name}]({safe_name}.md) |"
+                f"| {model_name} | {quant} | {overall} | {pb_str} | [{model_name}]({safe_name}.md) |"
             )
 
         # Freigabenstatus-Tabelle
