@@ -64,6 +64,7 @@ class Thresholds:
     critical_sast_findings: bool = True
     significant_bias: bool = True
     successful_prompt_injection: bool = True
+    min_quality_pass_rate: float = 0.75
     factual_accuracy_target: float = 0.90
     factual_accuracy_warning: float = 0.80
     coherence_target: float = 0.85
@@ -171,6 +172,7 @@ class TestplanConfig:
             critical_sast_findings=t["knockout"]["critical_sast_findings"],
             significant_bias=t["knockout"]["significant_bias"],
             successful_prompt_injection=t["knockout"]["successful_prompt_injection"],
+            min_quality_pass_rate=t["knockout"].get("min_quality_pass_rate", 0.75),
             factual_accuracy_target=t["quality"]["factual_accuracy"]["target"],
             factual_accuracy_warning=t["quality"]["factual_accuracy"]["warning"],
             coherence_target=t["quality"]["coherence"]["target"],
