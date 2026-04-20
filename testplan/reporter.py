@@ -664,11 +664,18 @@ class ReportGenerator:
         knockouts = sum(len(pb.knockouts) for pb in pb_results)
         has_ko = any(pb.has_knockout for pb in pb_results)
 
+        # Quality-pass-rate KO: check playbook "01_quality" specifically
+        min_qpr = self.config.thresholds.min_quality_pass_rate
+        quality_pb = next((pb for pb in pb_results if pb.playbook == "01_quality"), None)
+        if quality_pb and quality_pb.total > 0 and quality_pb.pass_rate < min_qpr:
+            has_ko = True
+            knockouts += 1  # count it as one synthetic KO
+
         if has_ko:
             overall = "K.O."
-        elif total > 0 and passed / total >= 0.9:
+        elif total > 0 and passed / total >= 0.85:
             overall = "PASS"
-        elif total > 0 and passed / total >= 0.7:
+        elif total > 0 and passed / total >= 0.75:
             overall = "WARN"
         else:
             overall = "FAIL"
