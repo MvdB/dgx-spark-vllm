@@ -449,6 +449,8 @@ apply_model_profile() {
   local PROFILE_BASH_WRAPPER=0     # 1 = wrap "vllm serve" in bash -lc (non-standard entrypoint)
   local PROFILE_IPC_HOST=0         # 1 = use --ipc=host instead of --shm-size
   local PROFILE_DOCKER_ENV=""      # space-separated KEY=VALUE pairs to inject into container
+  local PROFILE_PRE_SERVE_CMD=""   # shell command run before "vllm serve" (requires PROFILE_BASH_WRAPPER=1)
+  local PROFILE_VLLM_EXTRA_ARGS=() # bash array of extra serve args, e.g. ('--limit-mm-per-prompt' '{"video": 1}')
   local PROFILE_NOTES=""
   # shellcheck source=/dev/null
   source "${profile}"
@@ -464,6 +466,7 @@ apply_model_profile() {
   # Effektives Docker-Image bestimmen (Profil kann Standard überschreiben)
   EFFECTIVE_IMAGE="${PROFILE_DOCKER_IMAGE:-${IMAGE_REPO}:${VLLM_TAG}}"
   BASH_WRAPPER="${PROFILE_BASH_WRAPPER}"
+  PRE_SERVE_CMD="${PROFILE_PRE_SERVE_CMD}"
   [[ "${EFFECTIVE_IMAGE}" != "${IMAGE_REPO}:${VLLM_TAG}" ]] && \
     info "  Image   : ${EFFECTIVE_IMAGE} (custom)"
 
@@ -587,6 +590,11 @@ apply_model_profile() {
       DOCKER_EXTRA_ENV+=(--env "${kv}")
     done
   fi
+
+  # Profil-spezifische zusätzliche vllm serve-Args (z.B. multimodale Limits, JSON-Werte)
+  if (( ${#PROFILE_VLLM_EXTRA_ARGS[@]} > 0 )); then
+    MODEL_VLLM_ARGS+=("${PROFILE_VLLM_EXTRA_ARGS[@]}")
+  fi
 }
 
 # ---------- Stage 4: vLLM starten ----------
@@ -643,8 +651,10 @@ stage_run_vllm() {
   local vllm_cmd=()
   if (( BASH_WRAPPER == 1 )); then
     entrypoint_args=(--entrypoint "")
+    local pre=""
+    [[ -n "${PRE_SERVE_CMD:-}" ]] && pre="${PRE_SERVE_CMD} && "
     # shellcheck disable=SC2145
-    vllm_cmd=(/bin/bash -lc "vllm serve ${vllm_args[*]@Q}" )
+    vllm_cmd=(/bin/bash -lc "${pre}vllm serve ${vllm_args[*]@Q}" )
   elif [[ "${EFFECTIVE_IMAGE}" == nvcr.io/nvidia/vllm:* ]]; then
     # NVIDIA Spark image: entrypoint does exec "$@" → must pass "vllm serve <model> <args>"
     vllm_cmd=(vllm serve "${vllm_args[@]}")

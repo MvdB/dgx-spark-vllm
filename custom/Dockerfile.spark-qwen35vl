@@ -1,0 +1,15 @@
+# Custom vLLM image für Qwen3.5-VL-Modelle auf DGX Spark (GB10, sm_120).
+#
+# Problem: forward_cuda() in conv.py ruft immer F.conv3d (cuDNN) auf.
+#          GB10-cuDNN findet keinen Engine für vision patch embedding conv3d.
+# Fix: enable_linear-Pfad (unfold+matmul) ohne PyTorch-Versionscheck aktivieren.
+#      enable_linear=True wenn kernel_size==stride, kein Padding → exakt das Muster
+#      der Qwen3.5-VL patch embedding (kernel=(2,16,16), stride=(2,16,16)).
+#
+# Build:
+#   docker build -t spark-qwen35vl:v1 -f custom/Dockerfile.spark-qwen35vl .
+
+FROM nvcr.io/nvidia/vllm:26.03.post1-py3
+
+COPY custom/patch_conv3d.py /tmp/patch_conv3d.py
+RUN python3 /tmp/patch_conv3d.py && rm /tmp/patch_conv3d.py
