@@ -38,6 +38,7 @@ CANONICAL: dict[str, tuple[str, list[str], int]] = {
     "Gemma-4-E4B":                  ("google--gemma-4-E4B-it",                                  ["dense", "multimodal"],                 4),
     "gpt-oss-120b":                 ("openai--gpt-oss-120b",                                    ["dense", "instruct"],                 120),
     "gpt-oss-20b":                  ("openai--gpt-oss-20b",                                     ["dense", "instruct"],                  20),
+    "Granite-4.1-30B":              ("ibm-granite--granite-4.1-30b",                            ["dense", "instruct"],                  30),
     "LFM2.5-VL-450M":               ("LiquidAI--LFM2.5-VL-450M",                               ["dense", "multimodal"],                 0),
     "Ministral-3-14B-Instruct":     ("mistralai--Ministral-3-14B-Instruct-2512",                ["dense", "instruct"],                  14),
     "Ministral-3-14B-Reasoning":    ("mistralai--Ministral-3-14B-Reasoning-2512",               ["dense", "reasoning"],                 14),
