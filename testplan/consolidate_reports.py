@@ -45,6 +45,7 @@ CANONICAL: dict[str, tuple[str, list[str], int]] = {
     "Ministral-3-3B-Reasoning":     ("mistralai--Ministral-3-3B-Reasoning-2512",                ["dense", "reasoning"],                  3),
     "Ministral-3-8B-Instruct":      ("mistralai--Ministral-3-8B-Instruct-2512",                 ["dense", "instruct", "fp8"],            8),
     "Ministral-3-8B-Reasoning":     ("mistralai--Ministral-3-8B-Reasoning-2512",                ["dense", "reasoning"],                  8),
+    "Mistral-Medium-3.5-128B-NVFP4":("zdy1995love--Mistral-Medium-3.5-128B-NVFP4",              ["dense", "instruct", "multimodal", "nvfp4"], 128),
     "Mistral-Small-3.2-24B":        ("mistralai--Mistral-Small-3.2-24B-Instruct-2506",          ["dense", "instruct"],                  24),
     "Mistral-Small-3.2-24B-NVFP4":  ("RedHatAI--Mistral-Small-3.2-24B-Instruct-2506-NVFP4",   ["dense", "instruct", "nvfp4"],         24),
     "Mistral-Small-4":              ("mistralai--Mistral-Small-4-119B-2603-NVFP4",              ["moe", "custom_vllm", "nvfp4"],       119),
