@@ -394,13 +394,17 @@ class TestplanOrchestrator:
                 model=target_model,
             )
             report = asyncio.run(perf.run_benchmark())
-            violations = perf.check_thresholds(report, self.config.thresholds, model.params_b)
+            violations = perf.check_thresholds(
+                report, self.config.thresholds, model.params_b, model.tags
+            )
 
             summary = report.summary()
             # Performance-Schwellenwerte sind Richtwerte für große Modelle auf DGX Spark —
             # Verletzungen werden als WARN gewertet, nicht als FAIL/K.O.
             verdict = Verdict.WARN if violations else Verdict.PASS
-            tput_threshold = self.config.thresholds.throughput_for_model(model.params_b)
+            tput_threshold = self.config.thresholds.throughput_for_model(
+                model.params_b, model.tags
+            )
             by_type = summary.get("throughput_by_type", {})
             tput_detail = "  ".join(
                 f"{t}={v} tok/s" for t, v in by_type.items()

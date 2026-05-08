@@ -258,6 +258,7 @@ class PerformanceEvaluator:
         report: PerformanceReport,
         thresholds: Thresholds,
         model_params_b: int = 0,
+        model_tags: list[str] | None = None,
     ) -> list[str]:
         """Prüfe Performance gegen konfigurierte Schwellenwerte."""
         violations: list[str] = []
@@ -273,7 +274,7 @@ class PerformanceEvaluator:
                 f"TTFT P95 ({summary['ttft_p95_ms']:.0f}ms) "
                 f"überschreitet Schwellenwert ({thresholds.ttft_p95_ms}ms)"
             )
-        tput_threshold = thresholds.throughput_for_model(model_params_b)
+        tput_threshold = thresholds.throughput_for_model(model_params_b, model_tags)
         if summary["throughput_median_tok_s"] < tput_threshold:
             violations.append(
                 f"Throughput ({summary['throughput_median_tok_s']:.1f} tok/s) "

@@ -437,13 +437,25 @@ thresholds:
       target: 0.80
       warning: 0.70
 
-  # Performance — Richtwerte (TODO: nach Cohort-E-Daten kalibrieren)
+  # Performance — Memory-Bandwidth-bound Schwellenwerte
+  # Aktive Berechnung (sobald model.tags verfügbar):
+  #   threshold_tok_s = (memory_bandwidth_gb_s / weight_gb) * efficiency_factor
+  #   weight_gb = params_b * bytes_per_param  (BF16=2, FP8=1, NVFP4/Int4=0.5)
+  # Beispielwerte bei 273 GB/s und factor=0.55:
+  #   30B BF16 (60 GB)     → ~2.5 tok/s
+  #   24B NVFP4 (12 GB)    → ~12.5 tok/s
+  #   27B FP8  (27 GB)     → ~5.6 tok/s
+  #   128B NVFP4 (74 GB)   → ~2.0 tok/s
+  # Fallback (params_b ohne quant-tag): two-tier throughput_tok_s / _large.
   performance:
     ttft_p50_ms: 500              # Time to First Token, Median
     ttft_p95_ms: 2000
-    throughput_tok_s: 15          # Tokens/s — Modelle < throughput_large_min_b (vorläufig, war 30)
-    throughput_tok_s_large: 5     # Tokens/s — Modelle >= throughput_large_min_b (vorläufig, war 10)
-    throughput_large_min_b: 60    # Grenze in Milliarden Gesamtparametern
+    memory_bandwidth_gb_s: 273.0  # GB10 unified memory spec
+    throughput_efficiency_factor: 0.55  # realistischer Anteil des theoretischen Maximums
+    throughput_min_tok_s: 2.0     # absoluter Boden (fängt hängende Modelle)
+    throughput_tok_s: 15          # Legacy-Fallback Modelle < throughput_large_min_b
+    throughput_tok_s_large: 5     # Legacy-Fallback Modelle >= throughput_large_min_b
+    throughput_large_min_b: 60    # Legacy-Grenze in Milliarden Gesamtparametern
     concurrent_requests: 10       # Minimale parallele Requests (vorläufig, war 50)
 
   # HSF — Unsicherheitskorridor
