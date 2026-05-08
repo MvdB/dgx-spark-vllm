@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -71,18 +71,45 @@ class Thresholds:
     german_quality_target: float = 0.85
     ttft_p50_ms: int = 500
     ttft_p95_ms: int = 2000
-    throughput_tok_s: int = 30          # < throughput_large_min_b
-    throughput_tok_s_large: int = 10    # >= throughput_large_min_b
-    throughput_large_min_b: int = 60    # Grenze in Milliarden Parametern
+    throughput_tok_s: int = 30          # Legacy: Modelle < throughput_large_min_b
+    throughput_tok_s_large: int = 10    # Legacy: Modelle >= throughput_large_min_b
+    throughput_large_min_b: int = 60    # Legacy-Grenze in Milliarden Parametern
+    # Bandwidth-bound Schwellenwert (genutzt wenn tags übergeben werden):
+    #   threshold = (memory_bandwidth_gb_s / weight_gb) * efficiency_factor
+    # weight_gb = params_b * bytes_per_param  (bytes/param aus tags abgeleitet)
+    memory_bandwidth_gb_s: float = 273.0       # GB10 unified memory spec
+    throughput_efficiency_factor: float = 0.55  # realistischer Anteil des Theoretischen
+    throughput_min_tok_s: float = 2.0           # absoluter Boden (fängt hängende Modelle)
     concurrent_requests: int = 50
     hsf_uncertainty: float = 0.25
     hsf_min_samples: int = 50
 
-    def throughput_for_model(self, params_b: int) -> int:
-        """Gibt den passenden Throughput-Schwellenwert für die Modellgröße zurück."""
+    BYTES_PER_PARAM: ClassVar[dict[str, float]] = {
+        "bf16": 2.0, "fp16": 2.0,
+        "fp8": 1.0,
+        "nvfp4": 0.5, "gptq_int4": 0.5, "awq_int4": 0.5, "int4": 0.5,
+    }
+
+    def throughput_for_model(self, params_b: int, tags: list[str] | None = None) -> float:
+        """Realistischer Throughput-Schwellenwert.
+
+        Bei vorhandenen tags (mit Quant-Hinweis) wird ein Memory-Bandwidth-bound
+        Schwellenwert berechnet — sonst Fallback auf das alte Zwei-Tier-Schema.
+        """
+        if tags and params_b > 0:
+            bpp = 2.0  # default BF16
+            for t in tags:
+                key = t.lower()
+                if key in self.BYTES_PER_PARAM:
+                    bpp = self.BYTES_PER_PARAM[key]
+                    break
+            weight_gb = max(1.0, params_b * bpp)
+            theoretical = self.memory_bandwidth_gb_s / weight_gb
+            return round(max(self.throughput_min_tok_s, theoretical * self.throughput_efficiency_factor), 2)
+        # legacy fallback
         if params_b > 0 and params_b >= self.throughput_large_min_b:
-            return self.throughput_tok_s_large
-        return self.throughput_tok_s
+            return float(self.throughput_tok_s_large)
+        return float(self.throughput_tok_s)
 
 
 @dataclass
@@ -182,6 +209,9 @@ class TestplanConfig:
             throughput_tok_s=t["performance"]["throughput_tok_s"],
             throughput_tok_s_large=t["performance"].get("throughput_tok_s_large", 10),
             throughput_large_min_b=t["performance"].get("throughput_large_min_b", 60),
+            memory_bandwidth_gb_s=t["performance"].get("memory_bandwidth_gb_s", 273.0),
+            throughput_efficiency_factor=t["performance"].get("throughput_efficiency_factor", 0.55),
+            throughput_min_tok_s=t["performance"].get("throughput_min_tok_s", 2.0),
             concurrent_requests=t["performance"]["concurrent_requests"],
             hsf_uncertainty=t["hsf"]["uncertainty_corridor"],
             hsf_min_samples=t["hsf"]["min_samples"],
