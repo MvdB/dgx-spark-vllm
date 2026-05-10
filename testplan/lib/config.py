@@ -87,7 +87,7 @@ class Thresholds:
     BYTES_PER_PARAM: ClassVar[dict[str, float]] = {
         "bf16": 2.0, "fp16": 2.0,
         "fp8": 1.0,
-        "nvfp4": 0.5, "gptq_int4": 0.5, "awq_int4": 0.5, "int4": 0.5,
+        "nvfp4": 0.5, "gptq_int4": 0.5, "awq_int4": 0.5, "int4": 0.5, "mxfp4": 0.5,
     }
 
     def throughput_for_model(self, params_b: int, tags: list[str] | None = None) -> float:
