@@ -53,6 +53,8 @@ Umgebungsvariablen (Defaults in Klammern):
   HF_TOKEN / HUGGING_FACE_HUB_TOKEN  (leer)
   VLLM_EXTRA_ARGS            (leer)  Zusätzliche vLLM Args (ans Ende gehängt)
   DOCKER_IPC_HOST            (0)     Wenn 1: docker run --ipc host
+  VLLM_USE_V2_MODEL_RUNNER   (leer)  1=MRV2 global aktivieren, 0=erzwungen aus.
+                                     Profil-Feld PROFILE_USE_V2_MODEL_RUNNER überschreibt.
 
 Beispiele:
   ./vllm_spark.sh                            # Interaktives Menü
@@ -451,6 +453,7 @@ apply_model_profile() {
   local PROFILE_DOCKER_ENV=""      # space-separated KEY=VALUE pairs to inject into container
   local PROFILE_PRE_SERVE_CMD=""   # shell command run before "vllm serve" (requires PROFILE_BASH_WRAPPER=1)
   local PROFILE_VLLM_EXTRA_ARGS=() # bash array of extra serve args, e.g. ('--limit-mm-per-prompt' '{"video": 1}')
+  local PROFILE_USE_V2_MODEL_RUNNER="" # "", "0", "1" — leer = globalen VLLM_USE_V2_MODEL_RUNNER nutzen
   local PROFILE_NOTES=""
   # shellcheck source=/dev/null
   source "${profile}"
@@ -589,6 +592,24 @@ apply_model_profile() {
     for kv in ${PROFILE_DOCKER_ENV}; do
       DOCKER_EXTRA_ENV+=(--env "${kv}")
     done
+  fi
+
+  # Model Runner V2 (vLLM v0.21.0+): Profil-Feld hat Vorrang vor globaler Env.
+  # Profil "0" = harter Opt-out (z.B. Qwen3.5 linear-attention, NemotronH-Hybrid).
+  # Globale VLLM_USE_V2_MODEL_RUNNER setzt nur Modelle ohne explizite Profil-Aussage.
+  local mrv2_effective=""
+  if [[ "${PROFILE_USE_V2_MODEL_RUNNER}" == "0" || "${PROFILE_USE_V2_MODEL_RUNNER}" == "1" ]]; then
+    mrv2_effective="${PROFILE_USE_V2_MODEL_RUNNER}"
+  elif [[ "${VLLM_USE_V2_MODEL_RUNNER:-}" == "0" || "${VLLM_USE_V2_MODEL_RUNNER:-}" == "1" ]]; then
+    mrv2_effective="${VLLM_USE_V2_MODEL_RUNNER}"
+  fi
+  if [[ -n "${mrv2_effective}" ]]; then
+    DOCKER_EXTRA_ENV+=(--env "VLLM_USE_V2_MODEL_RUNNER=${mrv2_effective}")
+    if [[ "${mrv2_effective}" == "1" ]]; then
+      info "  MRV2    : aktiviert (VLLM_USE_V2_MODEL_RUNNER=1)"
+    else
+      info "  MRV2    : deaktiviert (Modell nicht MRV2-kompatibel)"
+    fi
   fi
 
   # Profil-spezifische zusätzliche vllm serve-Args (z.B. multimodale Limits, JSON-Werte)
