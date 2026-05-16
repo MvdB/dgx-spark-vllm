@@ -53,6 +53,7 @@ KNOWN_GOOD = {
         "PROFILE_REASONING_PARSER":         "nemotron_v3",
         "PROFILE_TRUST_REMOTE_CODE":        1,
         "PROFILE_ATTENTION_BACKEND":        "TRITON_ATTN",
+        "PROFILE_USE_V2_MODEL_RUNNER":      0,  # NemotronH linear-attention nicht im MRV2-Pfad
         "PROFILE_DOCKER_IMAGE":             "vllm/vllm-openai:v0.18.0",
         "PROFILE_DOCKER_ENV": (
             "VLLM_NVFP4_GEMM_BACKEND=marlin"
@@ -82,6 +83,7 @@ KNOWN_GOOD = {
         "PROFILE_REASONING_PARSER":         "qwen3",
         "PROFILE_TOOL_CALL_PARSER":         "qwen3_coder",
         "PROFILE_ENABLE_AUTO_TOOL_CHOICE":  1,
+        "PROFILE_USE_V2_MODEL_RUNNER":      0,  # Qwen3.5 linear-attention nicht im MRV2-Pfad
         "PROFILE_NOTES": (
             "Empirisch validiert 2026-03-09. "
             "MoE 122B GPTQ-Int4; Encoder-Cache-Overhead reduziert KV-Pool auf ~27 GiB (571 Blöcke). "
@@ -118,6 +120,7 @@ KNOWN_GOOD = {
         "PROFILE_TRUST_REMOTE_CODE":        1,
         "PROFILE_ATTENTION_BACKEND":        "TRITON_ATTN",
         "PROFILE_REASONING_PARSER":         "deepseek_r1",
+        "PROFILE_USE_V2_MODEL_RUNNER":      0,  # NemotronH Mamba-Hybrid nicht im MRV2-Pfad
         "PROFILE_DOCKER_IMAGE":             "vllm/vllm-openai:v0.18.0",
         "PROFILE_DOCKER_ENV": (
             "VLLM_ENGINE_CORE_STARTUP_TIMEOUT=300"
@@ -265,6 +268,7 @@ ARCH_HINTS = {
         "tool_call_parser":        "qwen3_coder",
         "enable_auto_tool_choice": 1,
         "check_mtp":               True,
+        "mrv2_compatible":         False,  # linear-attention nicht im MRV2-Pfad (Blog 2026-03-24)
     },
     "Qwen3_5MoeForConditionalGeneration": {
         "enforce_eager":           1,
@@ -272,6 +276,7 @@ ARCH_HINTS = {
         "enable_auto_tool_choice": 1,
         "check_mtp":               True,
         "gpu_blocks_override_large_moe": True,
+        "mrv2_compatible":         False,  # linear-attention nicht im MRV2-Pfad
     },
     "Mistral3ForConditionalGeneration": {
         "enable_auto_tool_choice": 1,
@@ -283,6 +288,7 @@ ARCH_HINTS = {
         "trust_remote_code": 1,    # auto_map → custom modeling code
         "enforce_eager":     1,
         "check_mtp":         True,
+        "mrv2_compatible":   False,  # Mamba-MoE-Hybrid → linear-attention, kein MRV2
     },
     "GptOssForCausalLM": {
         "enforce_eager":     1,
@@ -323,6 +329,7 @@ KEY_ORDER = [
     "PROFILE_BASH_WRAPPER",
     "PROFILE_IPC_HOST",
     "PROFILE_DOCKER_ENV",
+    "PROFILE_USE_V2_MODEL_RUNNER",
     "PROFILE_NOTES",
 ]
 
@@ -559,6 +566,12 @@ def compute_profile(model_dir: str) -> dict:
         p["PROFILE_ENABLE_AUTO_TOOL_CHOICE"] = enable_auto_tool_choice
     if num_gpu_blocks_override:
         p["PROFILE_NUM_GPU_BLOCKS_OVERRIDE"] = num_gpu_blocks_override
+
+    # ── Model Runner V2 (vLLM v0.21.0+) ──────────────────────────────────────
+    # Nur explizites Opt-out emittieren. Aktivierung steuert der Launcher via
+    # globaler Env VLLM_USE_V2_MODEL_RUNNER=1.
+    if hints.get("mrv2_compatible") is False:
+        p["PROFILE_USE_V2_MODEL_RUNNER"] = 0
 
     return p
 
