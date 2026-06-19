@@ -18,6 +18,11 @@ from lib.testdata import TestCase
 
 logger = logging.getLogger("testplan.evaluators")
 
+# Sentinel: max_model_len wurde noch nie abgefragt (vs. None = abgefragt, unbekannt).
+_MAX_LEN_UNFETCHED = -1
+# Sicherheitsabstand (Tokens) zwischen Prompt+Output und Kontextfenster.
+_CONTEXT_SAFETY_MARGIN = 32
+
 # Heuristik: Safety-Refusal-Phrases (DE + EN)
 _SAFETY_PATTERNS = re.compile(
     r"\b(i (can'?t|cannot|won'?t|will not|am unable to|refuse to)|"
@@ -210,6 +215,9 @@ class BaseEvaluator(ABC):
         self.judge_client = judge_client
         self.judge_model = judge_model
         self.default_system_prompt = default_system_prompt
+        # Kontextfenster des Zielmodells (max_model_len) — lazy aus /v1/models.
+        # _MAX_LEN_UNFETCHED = noch nicht abgefragt; None = unbekannt/nicht verfügbar.
+        self._target_max_model_len: int | None = _MAX_LEN_UNFETCHED
 
     def _model_prompt(self, test_case: TestCase) -> str:
         """Kombiniert context und prompt für den Modell-Query.
@@ -220,6 +228,53 @@ class BaseEvaluator(ABC):
         if test_case.context:
             return f"{test_case.context}\n\n{test_case.prompt}"
         return test_case.prompt
+
+    def _target_context_window(self) -> int | None:
+        """max_model_len des Zielmodells (aus /v1/models), gecacht.
+
+        Liefert None, wenn das Feld nicht ermittelbar ist (dann kein Clamping).
+        """
+        if self._target_max_model_len is not _MAX_LEN_UNFETCHED:
+            return self._target_max_model_len
+        max_len: int | None = None
+        try:
+            for model in self.target_client.models.list().data:
+                data = model.model_dump()
+                if model.id == self.target_model or max_len is None:
+                    val = data.get("max_model_len")
+                    if isinstance(val, int) and val > 0:
+                        max_len = val
+                if model.id == self.target_model:
+                    break
+        except Exception as e:  # /v1/models nicht erreichbar o. Feld fehlt → kein Clamp
+            logger.debug("max_model_len nicht ermittelbar: %s", e)
+        self._target_max_model_len = max_len
+        return max_len
+
+    def _clamp_max_tokens(self, max_tokens: int, messages: list[dict[str, str]]) -> int:
+        """Begrenzt max_tokens, sodass Prompt + Output ins Kontextfenster passen.
+
+        Ohne dieses Clamping schlägt z.B. der Code-Evaluator (max_tokens=4096) bei
+        Modellen mit kleinem Kontext (Apertus: max_model_len=4096) mit HTTP 400 fehl,
+        weil Prompt + 4096 Output-Tokens das Fenster überschreiten.
+        """
+        ctx = self._target_context_window()
+        if not ctx:
+            return max_tokens
+        # Konservative Token-Schätzung des Prompts (~3 Zeichen/Token + Rollen-Overhead).
+        prompt_chars = sum(len(m.get("content", "")) for m in messages)
+        prompt_est = prompt_chars // 3 + 8 * len(messages)
+        budget = ctx - prompt_est - _CONTEXT_SAFETY_MARGIN
+        if budget <= 0:
+            # Prompt allein sprengt den Kontext — Clamp kann nichts retten.
+            return max_tokens
+        if max_tokens > budget:
+            logger.info(
+                "max_tokens %d → %d gekürzt (Kontext %d, Prompt~%d) für '%s'",
+                max_tokens, budget, ctx, prompt_est, self.target_model,
+            )
+            return budget
+        return max_tokens
 
     def query_target(
         self,
@@ -243,6 +298,10 @@ class BaseEvaluator(ABC):
         if effective_system:
             messages.append({"role": "system", "content": effective_system})
         messages.append({"role": "user", "content": prompt})
+
+        # max_tokens an das Kontextfenster des Modells anpassen (verhindert HTTP 400
+        # bei Modellen mit kleinem Kontext, z.B. Apertus max_model_len=4096).
+        max_tokens = self._clamp_max_tokens(max_tokens, messages)
 
         start = time.monotonic()
         sanitized = False
