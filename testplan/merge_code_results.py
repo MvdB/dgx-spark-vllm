@@ -57,6 +57,50 @@ def recompute_summary(playbooks: dict, min_qpr: float) -> dict:
     }
 
 
+def regenerate_html_md(target_dir: Path, models: list[str], min_qpr: float) -> None:
+    """Erzeuge HTML/MD je Modell aus der (gepatchten) JSON neu, damit die
+    Detailseiten zur korrigierten Übersicht passen. Fail-safe: ein Fehler hier
+    darf den Merge nicht entwerten (die JSON sind bereits geschrieben)."""
+    try:
+        from lib.config import (TestplanConfig, JudgeConfig, TargetConfig,
+                                 Thresholds, PlaybookEntry, ModelConfig)
+        from reporter import ReportGenerator
+        from consolidate_reports import load_playbook_results, REPORTS_DIR
+    except Exception as e:  # pragma: no cover
+        print(f"  ! HTML/MD-Regenerierung übersprungen (Import fehlgeschlagen: {e})")
+        return
+
+    config = TestplanConfig(
+        judge=JudgeConfig(host="localhost", model="anthropic/claude-haiku-4-5"),
+        target=TargetConfig(host="localhost"),
+        models=[],
+        thresholds=Thresholds(min_quality_pass_rate=min_qpr),
+        playbooks=[PlaybookEntry(name=n, description="") for n in
+                   ["01_quality", "02_german_language", "03_bias",
+                    "04_security", "05_code", "06_performance"]],
+        testdata_dir=REPORTS_DIR.parent / "testdata",
+        report_dir=REPORTS_DIR,
+        base_dir=REPORTS_DIR.parent,
+    )
+    reporter = ReportGenerator(config, run_timestamp=target_dir.name)
+
+    for model in models:
+        jp = target_dir / f"{model}.json"
+        if not jp.exists():
+            continue
+        try:
+            data = json.loads(jp.read_text(encoding="utf-8"))
+            pb_results = load_playbook_results(jp, model)
+            cfg = ModelConfig(name=model, profile=data["meta"].get("profile", ""),
+                              machine="machine_b", tags=[], params_b=0)
+            safe = model.replace("/", "_").replace(" ", "_")
+            reporter._write_html(safe, cfg, pb_results)
+            reporter._write_markdown(safe, cfg, pb_results)
+            print(f"  ↻ {model}: HTML/MD neu erzeugt")
+        except Exception as e:
+            print(f"  ! {model}: HTML/MD-Regenerierung fehlgeschlagen: {e}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("target_dir", type=Path, help="Bestehender Voll-Report (Ziel)")
@@ -64,6 +108,8 @@ def main() -> None:
     ap.add_argument("--models", required=True, help="Komma-Liste der Modellnamen")
     ap.add_argument("--playbook", default="05_code", help="Zu mergendes Playbook")
     ap.add_argument("--min-quality-pass-rate", type=float, default=0.70)
+    ap.add_argument("--no-regen-html", action="store_true",
+                    help="HTML/MD-Detailseiten NICHT neu erzeugen")
     args = ap.parse_args()
 
     pb_key = args.playbook
@@ -104,6 +150,10 @@ def main() -> None:
         print(f"  ✓ {model}: {pb_key} {old_pf} → {new_pf} | "
               f"overall={s['overall']} {s['passed']}/{s['total_tests']} "
               f"({s['pass_rate']}%) KO={s['knockouts']}")
+
+    if not args.no_regen_html:
+        print("--- HTML/MD-Detailseiten neu erzeugen ---")
+        regenerate_html_md(args.target_dir, models, args.min_quality_pass_rate)
 
 
 if __name__ == "__main__":

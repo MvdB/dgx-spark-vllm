@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,6 +69,7 @@ def load_model(model_name: str) -> dict | None:
         return None
     data = json.loads(p.read_text(encoding="utf-8"))
     data["_source"] = p.parent.name
+    data["_dir"] = str(p.parent)
     return data
 
 
@@ -121,8 +123,10 @@ def build_html(rows: list[dict], generated: str) -> str:
             else:
                 cells += '<td class="na">—</td>'
         fam = r["family"].lower()
+        link = f'details/{r["mname"]}.html'
         matrix_rows += (
-            f'<tr><td class="model {fam}">{r["name"]} '
+            f'<tr><td class="model {fam}">'
+            f'<a href="{link}">{r["name"]}</a> '
             f'<span class="pb">{r["params_b"]:g}B</span></td>'
             f'<td class="ko">{s["overall"]}</td>'
             f'<td class="{rate_class(total_rate)} total">{s["passed"]}/{s["total_tests"]}'
@@ -154,7 +158,8 @@ def build_html(rows: list[dict], generated: str) -> str:
         s = r["data"]["summary"]
         rate = s["passed"] / max(1, s["total_tests"])
         rank_items += (
-            f'<li><span class="rk">{i}</span> <b>{r["name"]}</b> '
+            f'<li><span class="rk">{i}</span> '
+            f'<b><a href="details/{r["mname"]}.html">{r["name"]}</a></b> '
             f'<span class="pb">{r["params_b"]:g}B · {r["family"]}</span> '
             f'<span class="score {rate_class(rate)}">{rate*100:.0f}%</span> '
             f'<span class="muted">({s["passed"]}/{s["total_tests"]})</span></li>\n'
@@ -211,6 +216,9 @@ def build_html(rows: list[dict], generated: str) -> str:
   .muted {{ color: #888; font-size: .85rem; }}
   .findings li {{ margin-bottom: .5rem; }}
   .findings b {{ color: #000; }}
+  td.model a, ol.rank a {{ color: inherit; text-decoration: none;
+                           border-bottom: 1px dotted #999; }}
+  td.model a:hover, ol.rank a:hover {{ border-bottom-style: solid; }}
   footer {{ margin-top: 3rem; color: #999; font-size: .8rem; }}
 </style></head>
 <body>
@@ -277,7 +285,8 @@ def main() -> None:
         if data is None:
             missing.append(mname)
             continue
-        rows.append({"name": name, "params_b": pb, "family": fam, "data": data})
+        rows.append({"name": name, "mname": mname, "params_b": pb,
+                     "family": fam, "data": data})
         print(f"  ✓ {name:14} ← reports/{data['_source']}/{mname}.json")
 
     if missing:
@@ -290,6 +299,17 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(html, encoding="utf-8")
     print(f"\n→ {args.out}")
+
+    # Detail-Reports je Modell daneben bündeln (verlinkt aus der Übersicht)
+    details_dir = args.out.parent / "details"
+    details_dir.mkdir(parents=True, exist_ok=True)
+    for r in rows:
+        src = Path(r["data"]["_dir"]) / f"{r['mname']}.html"
+        if src.exists():
+            shutil.copy2(src, details_dir / f"{r['mname']}.html")
+            print(f"  ↳ detail: details/{r['mname']}.html")
+        else:
+            print(f"  ! detail fehlt für {r['name']}: {src}")
 
 
 if __name__ == "__main__":
