@@ -20,9 +20,8 @@ TS="$(date +%Y%m%d_%H%M%S)"
 LOG_DIR="logs"; mkdir -p "$LOG_DIR"
 LOG="${LOG_DIR}/medium_run_${TS}.log"
 
-# 7 startklare (Omni-FP8/NVFP4 + GLM separat, sobald geklärt/geladen).
-# Reihenfolge klein → groß für frühe Ergebnisse.
-MODELS="Qwen3.6-27B-FP8,Gemma-4-26B-A4B,Granite-4.1-30B,Nemotron-3-Nano-30B,Olmo-3.1-32B-Instruct,Gemma-4-31B,Qwen3.6-35B-A3B-FP8"
+# Alle 9 nach Smoke-Validierung. Reihenfolge klein → groß für frühe Ergebnisse.
+MODELS="Qwen3.6-27B-FP8,Gemma-4-26B-A4B,Granite-4.1-30B,Nemotron-3-Nano-30B,Nemotron-3-Nano-Omni-30B,GLM-4.7-Flash,Olmo-3.1-32B-Instruct,Gemma-4-31B,Qwen3.6-35B-A3B-FP8"
 
 {
   echo "=== medium_run start $(date -Is) ==="
