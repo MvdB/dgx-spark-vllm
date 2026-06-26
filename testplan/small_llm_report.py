@@ -298,6 +298,9 @@ def build_md(rows: list[dict], generated: str) -> str:
     ranked = sorted(rows, key=orate, reverse=True)
     judge = rows[0]["data"]["meta"].get("judge", "—")
 
+    def mlink(r: dict) -> str:
+        return f"[{r['name']}](details/{r['mname']}.md)"
+
     L: list[str] = []
     L.append("# Small-LLM-Vergleich — Apertus v1.1 vs. Gemma 4")
     L.append("")
@@ -305,6 +308,10 @@ def build_md(rows: list[dict], generated: str) -> str:
         f"Kleine Instruct-Modelle (0.5–4B), einheitlich auf **vLLM v0.23.0**. "
         f"Judge: **{judge}**. 77 Testfälle / 6 Playbooks. Generiert {generated}."
     )
+    L.append("")
+    L.append("> Die Modellnamen verlinken auf den jeweiligen **Einzelbericht** "
+             "(`details/<modell>.md`) mit Playbook-Aufschlüsselung, K.O.-Verletzungen "
+             "und Detailergebnissen.")
     L.append("")
 
     # ---- Rangliste ----
@@ -316,7 +323,7 @@ def build_md(rows: list[dict], generated: str) -> str:
         s = r["data"]["summary"]
         rate = orate(r)
         L.append(
-            f"| {i} | {r['name']} | {r['params_b']:g}B {r['family']} | "
+            f"| {i} | {mlink(r)} | {r['params_b']:g}B {r['family']} | "
             f"**{rate*100:.0f}%** | {s['passed']}/{s['total_tests']} |"
         )
     L.append("")
@@ -339,7 +346,7 @@ def build_md(rows: list[dict], generated: str) -> str:
             else:
                 cells.append("—")
         L.append(
-            f"| {r['name']} | {s['overall']} | "
+            f"| {mlink(r)} | {s['overall']} | "
             f"**{rate*100:.0f}%** ({s['passed']}/{s['total_tests']}) | "
             + " | ".join(cells) + " |"
         )
@@ -381,7 +388,7 @@ def build_md(rows: list[dict], generated: str) -> str:
     for r in ranked:
         reasons = ko_reasons(r["data"])
         L.append(
-            f"| {r['name']} | {r['data']['summary']['overall']} | "
+            f"| {mlink(r)} | {r['data']['summary']['overall']} | "
             f"{', '.join(reasons) if reasons else '—'} |"
         )
     L.append("")
@@ -427,16 +434,23 @@ def main() -> None:
     md_out.write_text(build_md(rows, generated), encoding="utf-8")
     print(f"→ {md_out}")
 
-    # Detail-Reports je Modell daneben bündeln (verlinkt aus der Übersicht)
+    # Einzelberichte je Modell daneben bündeln (verlinkt aus der Übersicht).
+    # HTML für die Web-Ansicht, Markdown (mit Rücklink) für die GitLab-Ablage.
     details_dir = args.out.parent / "details"
     details_dir.mkdir(parents=True, exist_ok=True)
+    backlink = "[← Zurück zur Übersicht](../index.md)\n\n"
     for r in rows:
-        src = Path(r["data"]["_dir"]) / f"{r['mname']}.html"
-        if src.exists():
-            shutil.copy2(src, details_dir / f"{r['mname']}.html")
-            print(f"  ↳ detail: details/{r['mname']}.html")
+        src_dir = Path(r["data"]["_dir"])
+        src_html = src_dir / f"{r['mname']}.html"
+        if src_html.exists():
+            shutil.copy2(src_html, details_dir / f"{r['mname']}.html")
+        src_md = src_dir / f"{r['mname']}.md"
+        if src_md.exists():
+            body = src_md.read_text(encoding="utf-8")
+            (details_dir / f"{r['mname']}.md").write_text(backlink + body, encoding="utf-8")
+            print(f"  ↳ einzel: details/{r['mname']}.md")
         else:
-            print(f"  ! detail fehlt für {r['name']}: {src}")
+            print(f"  ! Einzel-MD fehlt für {r['name']}: {src_md}")
 
 
 if __name__ == "__main__":
