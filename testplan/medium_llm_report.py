@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,32 @@ PLAYBOOKS = [
     ("04_security",         "Security"),
     ("05_code",             "Code"),
     ("06_performance",      "Performance"),
+]
+
+# Kernaussagen (Markdown-Quelle; **fett**/_kursiv_ → HTML beim Rendern).
+# Single source für HTML- und Markdown-Ausgabe.
+FINDINGS = [
+    "**Gemma führt die Klasse an:** Gemma-4-26B-A4B (90%) und Gemma-4-31B (84%) "
+    "belegen die Plätze 1 und 2. Bemerkenswert: das _kleinere_ MoE (26B/A4B aktiv) "
+    "schlägt das größere dense 31B — Architektur und Tuning schlagen reine Größe.",
+    "**Qwen3.6 solide im Mittelfeld:** 35B-A3B (79%) vor dem dichten 27B (77%), "
+    "beide FP8 — die FP8-Quantisierung kostet keine sichtbare Qualität.",
+    "**Quality bleibt der Differenzierer:** Bias (alle 100%) und Performance "
+    "(alle 1/1 TTFT) trennen niemanden; die Rangfolge entscheidet sich an Quality, "
+    "German und Code.",
+    "**German streut stark:** Gemma 100% an der Spitze gegen GLM-4.7-Flash 25% und "
+    "Qwen3.6-27B/Granite/Olmo je 50% — Mehrsprachigkeit ist kein selbstverständliches Niveau.",
+    "**Code:** Gemma-4-26B-A4B als einziges mit voller Code-Punktzahl (10/10); "
+    "GLM (40%) und beide Qwen-FP8 (50%) am schwächsten.",
+    "**Echte Schwellen-K.O. (nicht nur Halluzinations-Einzeltests):** "
+    "Granite-4.1-30B und Olmo-3.1-32B reißen die **Security**-Schwelle (75% bzw. 67%). "
+    "Diese beiden plus GLM tragen auch die meisten K.O.-Marker (11/10/12).",
+    "**Schlusslicht:** GLM-4.7-Flash (56%) — kleinstes Modell der Kohorte (~15.6B "
+    "MoE-Lite) und durchgängig schwächste Quality/German/Code-Werte.",
+    "**Alle 9 formal K.O.:** wie schon bei den Small-LLMs überwiegend über einzelne "
+    "K.O.-Tests, nicht zwingend die 70%-Quality-Schwelle. Die Gesamt-Pass-Rate ist der "
+    "aussagekräftige Vergleich. Infrastruktur-Erfolg: die zuvor auf v0.21.0 gepinnten "
+    "Modelle laufen jetzt einheitlich auf **v0.23.0** (Qwen3.6-VL ohne conv3d-Custom-Patch).",
 ]
 
 # Akzentfarbe je Familie (linker Rand in der Matrix)
@@ -119,6 +146,13 @@ def ko_reasons(data: dict) -> list[str]:
 def overall_rate(data: dict) -> float:
     s = data["summary"]
     return s["passed"] / max(1, s["total_tests"])
+
+
+def md_inline_to_html(s: str) -> str:
+    """Minimal: **fett** → <b>, _kursiv_ → <i>. Genug für die Kernaussagen."""
+    s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+    s = re.sub(r"_(.+?)_", r"<i>\1</i>", s)
+    return s
 
 
 def build_html(rows: list[dict], generated: str) -> str:
@@ -202,6 +236,8 @@ def build_html(rows: list[dict], generated: str) -> str:
 
     pb_header = "".join(f"<th>{lbl}</th>" for _, lbl in PLAYBOOKS)
 
+    findings_html = "\n".join(f"  <li>{md_inline_to_html(f)}</li>" for f in FINDINGS)
+
     return f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -274,27 +310,7 @@ def build_html(rows: list[dict], generated: str) -> str:
 
 <h2>Kernaussagen</h2>
 <ul class="findings">
-  <li><b>Gemma führt die Klasse an:</b> Gemma-4-26B-A4B (90%) und Gemma-4-31B (84%)
-      belegen die Plätze&nbsp;1 und&nbsp;2. Bemerkenswert: das <i>kleinere</i> MoE
-      (26B/A4B aktiv) schlägt das größere dense 31B — Architektur und Tuning schlagen reine Größe.</li>
-  <li><b>Qwen3.6 solide im Mittelfeld:</b> 35B-A3B (79%) vor dem dichten 27B (77%),
-      beide FP8 — die FP8-Quantisierung kostet keine sichtbare Qualität.</li>
-  <li><b>Quality bleibt der Differenzierer:</b> Bias (alle 100%) und Performance
-      (alle 1/1 TTFT) trennen niemanden; die Rangfolge entscheidet sich an Quality,
-      German und Code.</li>
-  <li><b>German streut stark:</b> Gemma 100% an der Spitze gegen GLM-4.7-Flash 25% und
-      Qwen3.6-27B/Granite/Olmo je 50% — Mehrsprachigkeit ist kein selbstverständliches Niveau.</li>
-  <li><b>Code:</b> Gemma-4-26B-A4B als einziges mit voller Code-Punktzahl (10/10);
-      GLM (40%) und beide Qwen-FP8 (50%) am schwächsten.</li>
-  <li><b>Echte Schwellen-K.O. (nicht nur Halluzinations-Einzeltests):</b>
-      Granite-4.1-30B und Olmo-3.1-32B reißen die <b>Security</b>-Schwelle (75% bzw. 67%).
-      Diese beiden plus GLM tragen auch die meisten K.O.-Marker (11/10/12).</li>
-  <li><b>Schlusslicht:</b> GLM-4.7-Flash (56%) — kleinstes Modell der Kohorte (~15.6B
-      MoE-Lite) und durchgängig schwächste Quality/German/Code-Werte.</li>
-  <li><b>Alle 9 formal K.O.:</b> wie schon bei den Small-LLMs überwiegend über einzelne
-      K.O.-Tests, nicht zwingend die 70%-Quality-Schwelle. Die Gesamt-Pass-Rate ist der
-      aussagekräftige Vergleich. Infrastruktur-Erfolg: die zuvor auf v0.21.0 gepinnten
-      Modelle laufen jetzt einheitlich auf <b>v0.23.0</b> (Qwen3.6-VL ohne conv3d-Custom-Patch).</li>
+{findings_html}
 </ul>
 
 <h2>K.O.-Gründe im Detail</h2>
@@ -310,9 +326,113 @@ def build_html(rows: list[dict], generated: str) -> str:
 """
 
 
+def build_md(rows: list[dict], generated: str) -> str:
+    """Eigenständiges Markdown-Dokument (GitLab-tauglich), gleiche Inhalte wie HTML."""
+    ranked = sorted(rows, key=lambda r: overall_rate(r["data"]), reverse=True)
+    judge = rows[0]["data"]["meta"].get("judge", "—")
+
+    L: list[str] = []
+    L.append("# Mittelklasse-LLM-Vergleich — 8–35B")
+    L.append("")
+    L.append(
+        f"Instruct-/Reasoning-Modelle der Mittelklasse (~15–35B), einheitlich auf "
+        f"**vLLM v0.23.0**. Judge: **{judge}**. 77 Testfälle / 6 Playbooks. "
+        f"Generiert {generated}."
+    )
+    L.append("")
+
+    # ---- Rangliste ----
+    L.append("## Rangliste (Gesamt-Pass-Rate)")
+    L.append("")
+    L.append("| # | Modell | Größe | Quant | Pass-Rate | bestanden | K.O. |")
+    L.append("|---|--------|-------|-------|-----------|-----------|------|")
+    for i, r in enumerate(ranked, 1):
+        s = r["data"]["summary"]
+        rate = overall_rate(r["data"])
+        L.append(
+            f"| {i} | {r['name']} | {r['params_b']:g}B {r['family']} ({r['arch']}) | "
+            f"{r['quant']} | **{rate*100:.0f}%** | {s['passed']}/{s['total_tests']} | "
+            f"{s['knockouts']} |"
+        )
+    L.append("")
+
+    # ---- Playbook-Matrix ----
+    L.append("## Playbook-Matrix")
+    L.append("")
+    pb_head = " | ".join(lbl for _, lbl in PLAYBOOKS)
+    L.append(f"| Modell | Quant | Urteil | Gesamt | {pb_head} |")
+    L.append("|--------|-------|--------|--------|" + "----|" * len(PLAYBOOKS))
+    for r in ranked:
+        s = r["data"]["summary"]
+        P = r["data"]["playbooks"]
+        rate = overall_rate(r["data"])
+        cells = []
+        for pkey, _ in PLAYBOOKS:
+            if pkey in P:
+                p, t, _r = pb_cell(P[pkey])
+                cells.append(f"{p}/{t}")
+            else:
+                cells.append("—")
+        L.append(
+            f"| {r['name']} | {r['quant']} | {s['overall']} | "
+            f"**{rate*100:.0f}%** ({s['passed']}/{s['total_tests']}) | "
+            + " | ".join(cells) + " |"
+        )
+    L.append("")
+    L.append("Zellen: bestanden/gesamt je Playbook. „Gesamt\" ist die Pass-Rate über alle 77 Fälle.")
+    L.append("")
+
+    # ---- Per-Playbook-Sieger ----
+    L.append("## Per-Playbook-Sieger")
+    L.append("")
+    L.append("| Playbook | Bestes Modell | Wert |")
+    L.append("|----------|---------------|------|")
+    for pkey, plabel in PLAYBOOKS:
+        best = None
+        for r in rows:
+            pb = r["data"]["playbooks"].get(pkey)
+            if not pb:
+                continue
+            _, _, rate = pb_cell(pb)
+            if best is None or rate > best[1]:
+                best = (r["name"], rate, pb_cell(pb))
+        if best:
+            p, t, _ = best[2]
+            L.append(f"| {plabel} | **{best[0]}** | {p}/{t} ({best[1]*100:.0f}%) |")
+    L.append("")
+
+    # ---- Kernaussagen ----
+    L.append("## Kernaussagen")
+    L.append("")
+    for f in FINDINGS:
+        L.append(f"- {f}")
+    L.append("")
+
+    # ---- K.O.-Gründe ----
+    L.append("## K.O.-Gründe im Detail")
+    L.append("")
+    L.append("| Modell | Urteil | ausgelöst durch |")
+    L.append("|--------|--------|-----------------|")
+    for r in ranked:
+        reasons = ko_reasons(r["data"])
+        L.append(
+            f"| {r['name']} | {r['data']['summary']['overall']} | "
+            f"{', '.join(reasons) if reasons else '—'} |"
+        )
+    L.append("")
+    L.append(
+        "---\n\n_Quelldaten: reports/&lt;run&gt;/&lt;model&gt;.json (jüngster vollständiger "
+        "Lauf je Modell). Generiert von `medium_llm_report.py`._"
+    )
+    L.append("")
+    return "\n".join(L)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=REPORTS_DIR / "medium-llms" / "index.html")
+    ap.add_argument("--md", type=Path, default=None,
+                    help="zusätzlich Markdown schreiben (Default: <out-dir>/index.md)")
     args = ap.parse_args()
 
     rows = []
@@ -336,6 +456,11 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(html, encoding="utf-8")
     print(f"\n→ {args.out}")
+
+    md_out = args.md or args.out.with_suffix(".md")
+    md_out.parent.mkdir(parents=True, exist_ok=True)
+    md_out.write_text(build_md(rows, generated), encoding="utf-8")
+    print(f"→ {md_out}")
 
     # Detail-Reports je Modell daneben bündeln (verlinkt aus der Übersicht)
     details_dir = args.out.parent / "details"
