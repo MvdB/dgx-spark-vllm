@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Granite STT — DGX Spark</title>
+<style>
+  :root {
+    --bg: #0f1420; --card: #171e2e; --card2: #1d2638; --border: #2a3550;
+    --text: #dde4f0; --dim: #8a96ad; --accent: #4f8cff; --ok: #3ecf8e;
+    --warn: #f0b429; --err: #ef6461; --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 860px; }
+  h1 { font-size: 20px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1 small { color: var(--dim); font-weight: 400; font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.err { background: var(--err); }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+  .field.small { flex: 0 0 110px; min-width: 110px; }
+  label { font-size: 12px; color: var(--dim); }
+  input, select {
+    background: var(--card2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 14px; width: 100%;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  #drop {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 28px 16px;
+    text-align: center; transition: border-color .15s, background .15s; cursor: pointer;
+  }
+  #drop.over { border-color: var(--accent); background: #1a2340; }
+  #drop p { margin: 10px 0 0; color: var(--dim); font-size: 13px; }
+  .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  button {
+    background: var(--card2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 16px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.rec { background: var(--err); border-color: var(--err); color: #fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  #progressWrap { display: none; margin-top: 14px; }
+  #bar { height: 6px; background: var(--card2); border-radius: 3px; overflow: hidden; }
+  #barFill { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  #statusLine { font-size: 13px; color: var(--dim); margin-top: 6px; }
+
+  #result { display: none; }
+  .toolbar { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+  .turn { display: flex; gap: 10px; margin-bottom: 10px; }
+  .chip {
+    flex: none; font-size: 12px; font-weight: 600; border-radius: 6px;
+    padding: 2px 8px; height: fit-content; margin-top: 2px;
+  }
+  .turn p { margin: 0; }
+  pre#raw {
+    font-family: var(--mono); font-size: 13px; white-space: pre-wrap;
+    background: var(--card2); border-radius: 8px; padding: 12px; margin: 0;
+  }
+  #error { display: none; border-color: var(--err); color: var(--err); font-size: 14px; }
+  .hint { font-size: 12px; color: var(--dim); margin-top: 10px; }
+  .hint code { font-family: var(--mono); font-size: 11px; background: var(--card2); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span class="dot" id="dot"></span> Granite STT <small>granite-speech-4.1-2b-plus · DGX Spark</small></h1>
+    <span id="clock" style="font-family:var(--mono);font-size:12px;color:var(--dim)"></span>
+  </header>
+
+  <div class="card">
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label for="server">vLLM-Server</label>
+        <input id="server" spellcheck="false">
+      </div>
+      <div class="field" style="flex:2">
+        <label for="model">Modell</label>
+        <input id="model" value="granite-speech-4.1-2b-plus" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="mode">Modus</label>
+        <select id="mode">
+          <option value="saa">Sprecher-ID (SAA)</option>
+          <option value="asr">Nur Transkript (ASR)</option>
+          <option value="ts">Wort-Timestamps</option>
+        </select>
+      </div>
+      <div class="field small">
+        <label for="chunk">Chunk (s)</label>
+        <input id="chunk" type="number" value="180" min="30" max="300">
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="drop">
+    <div class="btns">
+      <button class="primary" id="btnFile">📁 Datei wählen</button>
+      <button id="btnMic">🎙 Aufnehmen</button>
+    </div>
+    <p>… oder Audio-Datei hierher ziehen (WAV/MP3/M4A/OGG/FLAC/WebM)</p>
+    <input type="file" id="file" accept="audio/*,video/webm,video/mp4" hidden>
+    <div id="progressWrap">
+      <div id="bar"><div id="barFill"></div></div>
+      <div id="statusLine"></div>
+    </div>
+  </div>
+
+  <div class="card" id="error"></div>
+
+  <div class="card" id="result">
+    <div class="toolbar">
+      <button id="btnCopy">📋 Kopieren</button>
+      <button id="btnTxt">⬇ .txt</button>
+      <button id="btnMd">⬇ .md</button>
+      <button id="btnSrt" style="display:none">⬇ .srt</button>
+    </div>
+    <div id="pretty"></div>
+    <pre id="raw" style="display:none"></pre>
+  </div>
+
+  <p class="hint">
+    🎙 Mikrofon braucht einen „secure context“: Seite via <code>file://</code> öffnen,
+    per <code>ssh -L 8081:localhost:8081</code> weiterleiten oder HTTPS nutzen —
+    über <code>http://&lt;ip&gt;</code> blockiert der Browser den Mikrofonzugriff.
+    Datei-Upload funktioniert immer. Max. ~5 min Audio pro Segment (Kontextlimit 4096),
+    längere Aufnahmen werden automatisch geteilt (Sprecher-Zuordnung über
+    Segmentgrenzen ist best-effort).
+  </p>
+</main>
+
+<script>
+"use strict";
+
+// ── Konstanten (siehe profiles/ibm-granite--granite-speech-4.1-2b-plus/) ──
+const PROMPTS = {
+  asr: "<|audio|> can you transcribe the speech into a written format?",
+  saa: "<|audio|> Speaker attribution: Transcribe and denote who is speaking " +
+       "by adding [Speaker 1]: and [Speaker 2]: tags before speaker turns.",
+  ts:  "<|audio|> Timestamps: Transcribe the speech. After each word, add a " +
+       "timestamp tag showing the end time in centiseconds, e.g. hello [T:45] world [T:82]",
+};
+const CTX_LIMIT = 4096, TOK_PER_SEC = 12, PREFIX_TAIL = 1200, RATE = 16000;
+const TS_MAX_CHUNK = 210;  // IBM: Timestamps nur bis 3,5 min zuverlässig
+
+const $ = id => document.getElementById(id);
+const speakerColors = ["#4f8cff", "#3ecf8e", "#f0b429", "#ef6461", "#b07cff", "#4fd8e0"];
+let lastResult = null;   // { mode, segments: [{offset, text}] }
+let mediaRecorder = null, recTimer = null;
+
+// ── Setup ──────────────────────────────────────────────────────────────────
+const defaultServer = location.protocol === "file:"
+  ? "http://localhost:8000" : `http://${location.hostname}:8000`;
+$("server").value = localStorage.getItem("stt_server") || defaultServer;
+$("model").value  = localStorage.getItem("stt_model")  || "granite-speech-4.1-2b-plus";
+$("mode").value   = localStorage.getItem("stt_mode")   || "saa";
+for (const id of ["server", "model", "mode"]) {
+  $(id).addEventListener("change", () => {
+    localStorage.setItem("stt_" + id, $(id).value);
+    if (id === "server") checkHealth();
+  });
+}
+
+async function checkHealth() {
+  const dot = $("dot");
+  dot.className = "dot";
+  try {
+    const r = await fetch(base() + "/v1/models", { signal: AbortSignal.timeout(4000) });
+    dot.className = "dot " + (r.ok ? "ok" : "err");
+    dot.title = r.ok ? "Server erreichbar" : `HTTP ${r.status}`;
+  } catch (e) {
+    dot.className = "dot err";
+    dot.title = "Server nicht erreichbar: " + e.message;
+  }
+}
+const base = () => $("server").value.trim().replace(/\/+$/, "").replace(/\/v1$/, "");
+checkHealth();
+setInterval(checkHealth, 30000);
+
+// ── Eingabe: Datei + Drag&Drop + Mikrofon ─────────────────────────────────
+$("btnFile").onclick = () => $("file").click();
+$("file").onchange = e => e.target.files[0] && processBlob(e.target.files[0]);
+const drop = $("drop");
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f) processBlob(f);
+};
+
+$("btnMic").onclick = async () => {
+  if (mediaRecorder) { mediaRecorder.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return showError("Mikrofon nicht verfügbar — secure context nötig (file://, localhost oder HTTPS).");
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const parts = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => parts.push(e.data);
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      clearInterval(recTimer);
+      $("btnMic").textContent = "🎙 Aufnehmen";
+      $("btnMic").classList.remove("rec");
+      const blob = new Blob(parts, { type: mediaRecorder.mimeType });
+      mediaRecorder = null;
+      processBlob(blob);
+    };
+    mediaRecorder.start();
+    const t0 = Date.now();
+    recTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      $("btnMic").textContent = `⏹ Stopp (${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")})`;
+    }, 500);
+    $("btnMic").classList.add("rec");
+    $("btnMic").textContent = "⏹ Stopp (00:00)";
+  } catch (e) {
+    showError("Mikrofonzugriff verweigert: " + e.message);
+  }
+};
+
+// ── Audio-Pipeline: dekodieren → 16 kHz mono → chunken → WAV → base64 ─────
+async function decodeToMono16k(arrayBuffer) {
+  const probe = new AudioContext();
+  const decoded = await probe.decodeAudioData(arrayBuffer);
+  probe.close();
+  const frames = Math.ceil(decoded.duration * RATE);
+  const off = new OfflineAudioContext(1, frames, RATE);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  src.connect(off.destination);
+  src.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+function encodeWav(f32) {
+  const buf = new ArrayBuffer(44 + f32.length * 2);
+  const v = new DataView(buf);
+  const wr = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  wr(0, "RIFF"); v.setUint32(4, 36 + f32.length * 2, true); wr(8, "WAVEfmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wr(36, "data"); v.setUint32(40, f32.length * 2, true);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+const blobToDataUrl = blob => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result);
+  r.onerror = rej;
+  r.readAsDataURL(blob);
+});
+
+function trimPrefix(text) {
+  if (text.length <= PREFIX_TAIL) return text;
+  const tail = text.slice(-PREFIX_TAIL);
+  const cut = tail.indexOf("[Speaker");
+  return cut > 0 ? tail.slice(cut) : tail;
+}
+
+async function transcribeChunk(f32, prefix, mode) {
+  const durSec = f32.length / RATE;
+  const estPrompt = 80 + Math.ceil(durSec * TOK_PER_SEC) + Math.ceil((prefix?.length || 0) / 3);
+  const payload = {
+    model: $("model").value.trim(),
+    messages: [{ role: "user", content: [
+      { type: "audio_url", audio_url: { url: await blobToDataUrl(encodeWav(f32)) } },
+      { type: "text", text: PROMPTS[mode] },
+    ]}],
+    temperature: 0,
+    max_tokens: Math.max(256, CTX_LIMIT - estPrompt - 16),
+  };
+  if (prefix) payload.chat_template_kwargs = { prefix_text: prefix };
+  const r = await fetch(base() + "/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`vLLM HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return (await r.json()).choices[0].message.content.trim();
+}
+
+async function processBlob(blob) {
+  hideError();
+  $("result").style.display = "none";
+  setProgress(0, "Dekodiere Audio …");
+  try {
+    const mode = $("mode").value;
+    const f32 = await decodeToMono16k(await blob.arrayBuffer());
+    const chunkSec = Math.min(
+      parseInt($("chunk").value, 10) || 180,
+      mode === "ts" ? TS_MAX_CHUNK : 300,
+    );
+    const per = chunkSec * RATE;
+    const chunks = [];
+    for (let o = 0; o < f32.length; o += per) chunks.push(f32.subarray(o, o + per));
+
+    const segments = [];
+    let transcript = "";
+    for (let i = 0; i < chunks.length; i++) {
+      setProgress(i / chunks.length, chunks.length > 1
+        ? `Transkribiere Segment ${i + 1}/${chunks.length} …` : "Transkribiere …");
+      const prefix = transcript && mode !== "ts" ? trimPrefix(transcript) + " " : null;
+      const text = await transcribeChunk(chunks[i], prefix, mode);
+      segments.push({ offset: i * chunkSec, text });
+      transcript = (transcript + " " + text).trim();
+    }
+    setProgress(1, "Fertig ✓");
+    lastResult = { mode, segments };
+    render();
+  } catch (e) {
+    setProgress(0, "");
+    $("progressWrap").style.display = "none";
+    showError(e.message);
+  }
+}
+
+// ── Darstellung + Export ───────────────────────────────────────────────────
+const fullText = () => lastResult.segments.map(s => s.text).join(" ").trim();
+
+function render() {
+  const { mode } = lastResult;
+  const text = fullText();
+  $("result").style.display = "block";
+  $("btnSrt").style.display = mode === "ts" ? "" : "none";
+
+  if (mode === "saa" && text.includes("[Speaker")) {
+    $("raw").style.display = "none";
+    const el = $("pretty");
+    el.style.display = "block";
+    el.innerHTML = "";
+    for (const m of text.matchAll(/\[Speaker (\d+)\]:\s*([^]*?)(?=\[Speaker \d+\]:|$)/g)) {
+      const n = parseInt(m[1], 10);
+      const turn = document.createElement("div");
+      turn.className = "turn";
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = "Speaker " + n;
+      const c = speakerColors[(n - 1) % speakerColors.length];
+      chip.style.cssText = `background:${c}22;color:${c};border:1px solid ${c}55`;
+      const p = document.createElement("p");
+      p.textContent = m[2].trim();
+      turn.append(chip, p);
+      el.appendChild(turn);
+    }
+  } else {
+    $("pretty").style.display = "none";
+    $("raw").style.display = "block";
+    $("raw").textContent = text;
+  }
+}
+
+const toMd = () => fullText()
+  .replace(/\s*\[Speaker (\d+)\]:\s*/g, "\n\n**Speaker $1:** ").trim();
+
+// SRT aus "[T:N]"-Tags: N = Centisekunden mod 1000, Rollover alle 10 s.
+// Stille wird als "_" (mit eigenem Tag) transkribiert → Timing nutzen, Wort verwerfen.
+function buildSrt() {
+  const words = [];
+  for (const seg of lastResult.segments) {
+    let R = 0, prevN = -1, pending = [];
+    for (const tok of seg.text.split(/\s+/)) {
+      const m = tok.match(/^\[T:(\d+)\]$/);
+      if (!m) { pending.push(tok); continue; }
+      const N = parseInt(m[1], 10);
+      if (N < prevN) R++;
+      prevN = N;
+      const end = seg.offset + N / 100 + 10 * R;
+      const w = pending.join(" ");
+      pending = [];
+      if (w && w !== "_") words.push({ w, end });
+      else if (words.length) words.push({ w: null, end });   // Stille → Cue-Grenze
+    }
+  }
+  const cues = [];
+  let cur = null;
+  let lastEnd = 0;
+  for (const { w, end } of words) {
+    if (w === null) {                                        // Stille schließt Cue
+      if (cur) { cues.push(cur); cur = null; }
+      lastEnd = end;
+      continue;
+    }
+    if (cur && end - cur.end > 2) {                          // große Lücke (z. B. Chunk-Grenze)
+      cues.push(cur); cur = null;
+    }
+    if (!cur) cur = { start: Math.max(lastEnd, end - 3), end, words: [w] };
+    else { cur.words.push(w); cur.end = end; }
+    lastEnd = end;
+    if (cur.words.join(" ").length > 70 || cur.end - cur.start > 5) {
+      cues.push(cur); cur = null;
+    }
+  }
+  if (cur) cues.push(cur);
+
+  const fmt = t => {
+    const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60,
+          s = Math.floor(t) % 60, ms = Math.round((t % 1) * 1000);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:` +
+           `${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+  };
+  return cues.map((c, i) =>
+    `${i + 1}\n${fmt(c.start)} --> ${fmt(c.end)}\n${c.words.join(" ")}\n`
+  ).join("\n");
+}
+
+function download(name, content, type = "text/plain") {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+
+$("btnCopy").onclick = async () => {
+  await navigator.clipboard.writeText(fullText());
+  $("btnCopy").textContent = "✓ Kopiert";
+  setTimeout(() => $("btnCopy").textContent = "📋 Kopieren", 1500);
+};
+$("btnTxt").onclick = () => download(`transkript-${stamp()}.txt`, fullText());
+$("btnMd").onclick  = () => download(`transkript-${stamp()}.md`, toMd(), "text/markdown");
+$("btnSrt").onclick = () => download(`transkript-${stamp()}.srt`, buildSrt());
+
+// ── UI-Helfer ──────────────────────────────────────────────────────────────
+function setProgress(frac, msg) {
+  $("progressWrap").style.display = "block";
+  $("barFill").style.width = Math.round(frac * 100) + "%";
+  $("statusLine").textContent = msg;
+}
+function showError(msg) {
+  $("error").style.display = "block";
+  $("error").textContent = "❌ " + msg;
+}
+function hideError() { $("error").style.display = "none"; }
+</script>
+</body>
+</html>
