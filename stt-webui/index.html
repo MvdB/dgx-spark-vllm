@@ -101,6 +101,10 @@
         <label for="chunk">Chunk (s)</label>
         <input id="chunk" type="number" value="180" min="30" max="300">
       </div>
+      <div class="field small" title="Vorherigen Text als Kontext weiterreichen. Stabilisiert theoretisch die Sprecher-Nummern, kann aber Sprachdrift verursachen — bei Dialekt/Musik dringend abgeraten.">
+        <label for="chain">Verkettung ⚠️</label>
+        <select id="chain"><option value="0" selected>aus</option><option value="1">an (exp.)</option></select>
+      </div>
     </div>
   </div>
 
@@ -120,6 +124,7 @@
   <div class="card" id="error"></div>
 
   <div class="card" id="result">
+    <div id="warn" style="display:none;color:var(--warn);font-size:13px;margin-bottom:10px"></div>
     <div class="toolbar">
       <button id="btnCopy">📋 Kopieren</button>
       <button id="btnTxt">⬇ .txt</button>
@@ -276,9 +281,40 @@ function trimPrefix(text) {
   return cut > 0 ? tail.slice(cut) : tail;
 }
 
+// Greedy-Decoding kann bei Gesang/Musik in Wiederholungs-Loops kippen
+// ("la la la …"). n-Gramm-Läufe (1–4 Wörter, ≥5 Wiederholungen) auf
+// ein Vorkommen + "…" kürzen; Vergleich normalisiert (Case/Interpunktion).
+function stripLoops(text, minRep = 5) {
+  const norm = w => w.toLowerCase().replace(/[.,!?;:]+$/, "");
+  const w = text.split(/\s+/).filter(Boolean);
+  const out = [];
+  let i = 0;
+  while (i < w.length) {
+    let hit = false;
+    for (let n = 8; n >= 1; n--) {
+      if (i + 2 * n > w.length) continue;
+      const gram = w.slice(i, i + n).map(norm).join(" ");
+      let reps = 1;
+      while (w.slice(i + reps * n, i + (reps + 1) * n).map(norm).join(" ") === gram) reps++;
+      if (reps >= minRep) {
+        out.push(...w.slice(i, i + n), "…");
+        i += reps * n;
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) out.push(w[i++]);
+  }
+  return out.join(" ");
+}
+
 async function transcribeChunk(f32, prefix, mode) {
   const durSec = f32.length / RATE;
   const estPrompt = 80 + Math.ceil(durSec * TOK_PER_SEC) + Math.ceil((prefix?.length || 0) / 3);
+  // Enges Output-Budget: echte Sprache liefert ~4,3 tok/s (SAA/ASR) bzw.
+  // ~12 tok/s mit [T:N]-Tags — Loops laufen so schnell ins "length"-Limit
+  // und sind sicher als degeneriert erkennbar.
+  const budget = Math.ceil(durSec * (mode === "ts" ? 16 : 6)) + 64;
   const payload = {
     model: $("model").value.trim(),
     messages: [{ role: "user", content: [
@@ -286,7 +322,7 @@ async function transcribeChunk(f32, prefix, mode) {
       { type: "text", text: PROMPTS[mode] },
     ]}],
     temperature: 0,
-    max_tokens: Math.max(256, CTX_LIMIT - estPrompt - 16),
+    max_tokens: Math.max(160, Math.min(CTX_LIMIT - estPrompt - 16, budget)),
   };
   if (prefix) payload.chat_template_kwargs = { prefix_text: prefix };
   const r = await fetch(base() + "/v1/chat/completions", {
@@ -295,7 +331,8 @@ async function transcribeChunk(f32, prefix, mode) {
     body: JSON.stringify(payload),
   });
   if (!r.ok) throw new Error(`vLLM HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
-  return (await r.json()).choices[0].message.content.trim();
+  const choice = (await r.json()).choices[0];
+  return { text: choice.message.content.trim(), capped: choice.finish_reason === "length" };
 }
 
 async function processBlob(blob) {
@@ -314,14 +351,21 @@ async function processBlob(blob) {
     for (let o = 0; o < f32.length; o += per) chunks.push(f32.subarray(o, o + per));
 
     const segments = [];
-    let transcript = "";
+    let cleanTail = "";                       // Prefix-Hygiene: nur saubere Chunks verketten
     for (let i = 0; i < chunks.length; i++) {
       setProgress(i / chunks.length, chunks.length > 1
         ? `Transkribiere Segment ${i + 1}/${chunks.length} …` : "Transkribiere …");
-      const prefix = transcript && mode !== "ts" ? trimPrefix(transcript) + " " : null;
-      const text = await transcribeChunk(chunks[i], prefix, mode);
-      segments.push({ offset: i * chunkSec, text });
-      transcript = (transcript + " " + text).trim();
+      // Verkettung default AUS: prefix_text kann Sprachdrift auslösen
+      // (validiert: bairisches Hörspiel kippte damit ab Chunk 3 ins Niederländische)
+      const chain = $("chain").value === "1";
+      const prefix = chain && cleanTail && mode !== "ts" ? trimPrefix(cleanTail) + " " : null;
+      const { text, capped } = await transcribeChunk(chunks[i], prefix, mode);
+      const cleaned = stripLoops(text);
+      // "length"-Abbruch oder massives Loop-Stripping = degeneriert
+      // (typisch: Gesang/Musik im Segment) → nicht in den Prefix übernehmen
+      const degenerate = capped || cleaned.length < text.length * 0.7;
+      segments.push({ offset: i * chunkSec, text: cleaned, degenerate });
+      if (!degenerate) cleanTail = (cleanTail + " " + cleaned).trim();
     }
     setProgress(1, "Fertig ✓");
     lastResult = { mode, segments };
@@ -337,29 +381,53 @@ async function processBlob(blob) {
 const fullText = () => lastResult.segments.map(s => s.text).join(" ").trim();
 
 function render() {
-  const { mode } = lastResult;
+  const { mode, segments } = lastResult;
   const text = fullText();
   $("result").style.display = "block";
   $("btnSrt").style.display = mode === "ts" ? "" : "none";
+
+  const bad = segments.filter(s => s.degenerate);
+  const warn = $("warn");
+  if (bad.length) {
+    const fmtMin = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    const chunkSec = segments.length > 1 ? segments[1].offset - segments[0].offset : 0;
+    warn.style.display = "block";
+    warn.textContent = "⚠️ Wiederholungs-Loops erkannt und gekürzt (vermutlich Gesang/Musik): " +
+      bad.map(s => `${fmtMin(s.offset)}–${fmtMin(s.offset + (chunkSec || 180))}`).join(", ");
+  } else {
+    warn.style.display = "none";
+  }
 
   if (mode === "saa" && text.includes("[Speaker")) {
     $("raw").style.display = "none";
     const el = $("pretty");
     el.style.display = "block";
     el.innerHTML = "";
-    for (const m of text.matchAll(/\[Speaker (\d+)\]:\s*([^]*?)(?=\[Speaker \d+\]:|$)/g)) {
-      const n = parseInt(m[1], 10);
-      const turn = document.createElement("div");
-      turn.className = "turn";
-      const chip = document.createElement("span");
-      chip.className = "chip";
-      chip.textContent = "Speaker " + n;
-      const c = speakerColors[(n - 1) % speakerColors.length];
-      chip.style.cssText = `background:${c}22;color:${c};border:1px solid ${c}55`;
-      const p = document.createElement("p");
-      p.textContent = m[2].trim();
-      turn.append(chip, p);
-      el.appendChild(turn);
+    const fmtMin = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    for (const seg of segments) {
+      if (segments.length > 1) {
+        // Ohne Verkettung zählt "Speaker N" pro Segment neu → Zeitmarke zeigen
+        const div = document.createElement("div");
+        div.style.cssText = "color:var(--dim);font-size:11px;margin:14px 0 8px;border-top:1px solid var(--border);padding-top:8px";
+        div.textContent = `— ${fmtMin(seg.offset)}${seg.degenerate ? " · ⚠️ gekürzt" : ""} —`;
+        el.appendChild(div);
+      }
+      const body = seg.text.includes("[Speaker") ? seg.text : "[Speaker 1]: " + seg.text;
+      for (const m of body.matchAll(/\[Speaker (\d+)\]:\s*([^]*?)(?=\[Speaker \d+\]:|$)/g)) {
+        if (!m[2].trim()) continue;
+        const n = parseInt(m[1], 10);
+        const turn = document.createElement("div");
+        turn.className = "turn";
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = "Speaker " + n;
+        const c = speakerColors[(n - 1) % speakerColors.length];
+        chip.style.cssText = `background:${c}22;color:${c};border:1px solid ${c}55`;
+        const p = document.createElement("p");
+        p.textContent = m[2].trim();
+        turn.append(chip, p);
+        el.appendChild(turn);
+      }
     }
   } else {
     $("pretty").style.display = "none";
@@ -368,8 +436,12 @@ function render() {
   }
 }
 
-const toMd = () => fullText()
-  .replace(/\s*\[Speaker (\d+)\]:\s*/g, "\n\n**Speaker $1:** ").trim();
+const toMd = () => lastResult.segments.map(s => {
+  const fmtMin = x => `${Math.floor(x / 60)}:${String(x % 60).padStart(2, "0")}`;
+  const head = lastResult.segments.length > 1
+    ? `\n\n---\n*${fmtMin(s.offset)}${s.degenerate ? " · ⚠️ gekürzt" : ""}*\n\n` : "";
+  return head + s.text.replace(/\s*\[Speaker (\d+)\]:\s*/g, "\n\n**Speaker $1:** ");
+}).join("").trim();
 
 // SRT aus "[T:N]"-Tags: N = Centisekunden mod 1000, Rollover alle 10 s.
 // Stille wird als "_" (mit eigenem Tag) transkribiert → Timing nutzen, Wort verwerfen.

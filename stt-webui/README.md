@@ -13,9 +13,12 @@ vLLM-Server (CORS ist bei `vllm serve` per Default offen).
 - **3 Modi**: Sprecher-ID (SAA, farbige Speaker-Chips), reines ASR,
   Wort-Timestamps
 - **Clientseitiges Chunking**: Audio wird im Browser auf 16 kHz mono
-  resampled, in Segmente geteilt (Default 180 s, Timestamps max. 210 s) und
-  mit `prefix_text` inkrementell dekodiert — Kontextlimit 4096 wird nie
-  gerissen
+  resampled und in Segmente geteilt (Default 180 s, Timestamps max. 210 s) —
+  Kontextlimit 4096 wird nie gerissen
+- **Loop-Schutz**: Greedy-Decoding kippt bei Gesang/Musik in Endlos-Loops
+  („la la la …"). Enges Token-Budget macht das erkennbar
+  (`finish_reason: length`), n-Gramm-Stripping (1–8 Wörter) kürzt die Loops,
+  betroffene Zeitbereiche werden in der UI ausgewiesen
 - **Export**: Kopieren, `.txt`, `.md` (Speaker fett), `.srt`-Untertitel aus dem
   Timestamps-Modus (inkl. `[T:N]`-Rollover-Umrechnung alle 10 s und
   Chunk-Offsets)
@@ -54,11 +57,19 @@ davorsetzen.
 
 ## Grenzen
 
-- Sprecher-Re-Identifikation **über Segmentgrenzen** ist best-effort — das
-  Modell hört frühere Segmente nicht mehr, nur deren Text-Prefix.
-  Zuverlässigste Diarization bei Aufnahmen ≤ 3 min (ein Segment).
+- **Segmente laufen unabhängig** — `Speaker N` zählt pro Segment neu, die UI
+  zeigt Zeitmarken an den Grenzen. Die Segment-Verkettung via `prefix_text`
+  (IBM-Doku „incremental decoding") ist als experimentelle Option vorhanden,
+  aber default AUS: Im Test mit einem bairischen Hörspiel löste sie
+  Sprachdrift aus (Transkript kippte ab Minute 9 ins Niederländische und
+  erholte sich nicht mehr). Zuverlässigste Diarization bei Aufnahmen ≤ 3 min
+  (ein Segment).
+- Gesang/Musik wird nicht sinnvoll transkribiert — Loops werden gekürzt und
+  als Warnung ausgewiesen, der Inhalt dieser Passagen fehlt aber.
 - IBM-Angaben: bis 9 min SAA, 3,5 min Timestamps (mit Chunking).
 - Plus-Variante liefert keine Interpunktion/Großschreibung (by design).
+- `--kv-cache-dtype fp8` verschlechtert die Decodierung messbar (Loop-Neigung)
+  — das kuratierte Profil erzwingt deshalb volle KV-Präzision.
 
 ## Tests
 
