@@ -37,11 +37,19 @@ eingebautes STT-Setting, ganz ohne Function (siehe unten).
 
 Bei ctx 4096 passt max. ~5 min Audio in einen Request. Längere Dateien teilt
 die Function per ffmpeg (im Open-WebUI-Docker-Image enthalten) in
-`CHUNK_SECONDS`-Segmente (Default 180 s) und dekodiert inkrementell mit
-`prefix_text`, damit die Sprecher-Nummerierung möglichst stabil bleibt.
-**Einschränkung:** Sprecher-Re-Identifikation über Chunk-Grenzen ist
-best-effort — das Modell hört frühere Chunks nicht mehr. IBM-Angaben:
-bis 9 min SAA, 3,5 min Timestamps (mit Chunking).
+`CHUNK_SECONDS`-Segmente (Default 180 s). Die Segmente laufen **unabhängig**:
+`Speaker N` zählt pro Segment neu, Zeitmarken (`*3:00*`) markieren die
+Grenzen. IBM-Angaben: bis 9 min SAA, 3,5 min Timestamps (mit Chunking).
+
+**Loop-Schutz:** Greedy-Decoding kippt bei Gesang/Musik in Endlos-Loops
+(„la la la …"). Enges Token-Budget + n-Gramm-Stripping kürzen die Loops;
+betroffene Zeitbereiche werden unter dem Transkript als Warnung ausgewiesen.
+
+**Valve `PREFIX_CHAINING` (default aus):** Segment-Verkettung via
+`prefix_text` (IBM „incremental decoding") stabilisiert theoretisch die
+Sprecher-Nummern, löste im Test mit einem bairischen Hörspiel aber
+Sprachdrift aus (Transkript kippte ins Niederländische). Nur für klar
+artikuliertes Standard-Material aktivieren.
 
 ### Plain-STT ohne Function (Mikrofon/Diktat)
 

@@ -29,6 +29,7 @@ import json
 import math
 import mimetypes
 import os
+import re
 import shutil
 import tempfile
 
@@ -48,6 +49,42 @@ PROMPTS = {
 CTX_LIMIT = 4096          # max_model_len des Servers (Backbone-Limit)
 AUDIO_TOK_PER_SEC = 12    # empirisch ~11,7 → aufgerundet
 PREFIX_TAIL_CHARS = 1200  # prefix_text-Budget bei langen Aufnahmen
+# Enges Output-Budget: echte Sprache ~4,3 tok/s (SAA/ASR), ~12 tok/s mit
+# [T:N]-Tags. Loops (Gesang/Musik) laufen so schnell ins "length"-Limit
+# und sind sicher als degeneriert erkennbar.
+OUT_TOK_PER_SEC = {"saa": 6, "asr": 6, "timestamps": 16}
+
+
+def _norm_word(w: str) -> str:
+    return re.sub(r"[.,!?;:]+$", "", w.lower())
+
+
+def strip_loops(text: str, min_rep: int = 5) -> str:
+    """n-Gramm-Wiederholungs-Läufe (1–4 Wörter, ≥min_rep) auf "…" kürzen.
+
+    Greedy-Decoding kippt bei Gesang/Musik in Endlos-Loops ("la la la …").
+    """
+    w = text.split()
+    out, i = [], 0
+    while i < len(w):
+        hit = False
+        for n in range(8, 0, -1):
+            if i + 2 * n > len(w):
+                continue
+            gram = [_norm_word(x) for x in w[i:i + n]]
+            reps = 1
+            while [_norm_word(x) for x in w[i + reps * n:i + (reps + 1) * n]] == gram:
+                reps += 1
+            if reps >= min_rep:
+                out.extend(w[i:i + n])
+                out.append("…")
+                i += reps * n
+                hit = True
+                break
+        if not hit:
+            out.append(w[i])
+            i += 1
+    return " ".join(out)
 
 
 class Pipe:
@@ -75,6 +112,14 @@ class Pipe:
         PRETTY_OUTPUT: bool = Field(
             default=True,
             description="Sprecherwechsel als Markdown formatieren (fett + Absätze)",
+        )
+        PREFIX_CHAINING: bool = Field(
+            default=False,
+            description="EXPERIMENTELL: Segment-Verkettung via prefix_text. Stabilisiert "
+                        "theoretisch die Sprecher-Nummern über Segmente, kann aber "
+                        "Sprachdrift auslösen (validiert: bairisches Hörspiel kippte "
+                        "damit ins Niederländische). Ohne Verkettung zählt Speaker N "
+                        "pro Segment neu.",
         )
         API_KEY: str = Field(
             default="",
@@ -126,12 +171,10 @@ class Pipe:
         b64 = base64.b64encode(open(path, "rb").read()).decode()
 
         # Output-Budget gegen das 4096er-Kontextlimit rechnen
-        est_prompt = 80 + len(prefix or "") // 3
-        if duration:
-            est_prompt += math.ceil(duration * AUDIO_TOK_PER_SEC)
-        else:
-            est_prompt += self.valves.CHUNK_SECONDS * AUDIO_TOK_PER_SEC
-        max_tokens = max(256, CTX_LIMIT - est_prompt - 16)
+        dur = duration or self.valves.CHUNK_SECONDS
+        est_prompt = 80 + len(prefix or "") // 3 + math.ceil(dur * AUDIO_TOK_PER_SEC)
+        budget = math.ceil(dur * OUT_TOK_PER_SEC[self.valves.MODE]) + 64
+        max_tokens = max(160, min(CTX_LIMIT - est_prompt - 16, budget))
 
         payload = {
             "model": self.valves.MODEL_ID,
@@ -157,7 +200,8 @@ class Pipe:
             if resp.status != 200:
                 raise RuntimeError(f"vLLM HTTP {resp.status}: {(await resp.text())[:300]}")
             data = await resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        choice = data["choices"][0]
+        return choice["message"]["content"].strip(), choice["finish_reason"] == "length"
 
     @staticmethod
     def _trim_prefix(text: str) -> str:
@@ -179,6 +223,7 @@ class Pipe:
                             "data": {"description": msg, "done": done}})
 
         duration = await self._probe_duration(path)
+        degenerate_ranges = []
         async with aiohttp.ClientSession() as session:
             if duration is not None and duration > self.valves.CHUNK_SECONDS:
                 if not shutil.which("ffmpeg"):
@@ -188,19 +233,49 @@ class Pipe:
                     )
                 with tempfile.TemporaryDirectory() as tmpdir:
                     chunks = await self._split_audio(path, tmpdir)
-                    transcript = ""
+                    parts = []
+                    clean_tail = ""   # Prefix-Hygiene: nur saubere Chunks verketten
                     for i, chunk in enumerate(chunks):
                         await status(f"Transkribiere Segment {i + 1}/{len(chunks)} …")
-                        part = await self._transcribe_chunk(
-                            session, chunk, min(self.valves.CHUNK_SECONDS, duration),
-                            self._trim_prefix(transcript) + " " if transcript else None,
+                        # Verkettung default AUS: prefix_text kann Sprachdrift
+                        # auslösen — Segmente laufen unabhängig, Speaker N zählt
+                        # pro Segment neu (Zeitmarken markieren die Grenzen).
+                        prefix = (
+                            self._trim_prefix(clean_tail) + " "
+                            if self.valves.PREFIX_CHAINING and clean_tail else None
                         )
-                        transcript = (transcript + " " + part).strip()
+                        raw, capped = await self._transcribe_chunk(
+                            session, chunk, min(self.valves.CHUNK_SECONDS, duration),
+                            prefix,
+                        )
+                        cleaned = strip_loops(raw)
+                        sec = i * self.valves.CHUNK_SECONDS
+                        stamp = f"{sec // 60}:{sec % 60:02d}"
+                        # "length"-Abbruch oder massives Loop-Stripping = degeneriert
+                        # (typisch: Gesang/Musik) → nicht in den Prefix übernehmen
+                        if capped or len(cleaned) < 0.7 * len(raw):
+                            degenerate_ranges.append(
+                                f"{stamp}–{(sec + self.valves.CHUNK_SECONDS) // 60}:"
+                                f"{(sec + self.valves.CHUNK_SECONDS) % 60:02d}"
+                            )
+                        else:
+                            clean_tail = (clean_tail + " " + cleaned).strip()
+                        parts.append(f"\n\n---\n*{stamp}*\n\n{cleaned}" if len(chunks) > 1
+                                     else cleaned)
+                    transcript = "".join(parts).strip()
             else:
                 await status("Transkribiere …")
-                transcript = await self._transcribe_chunk(session, path, duration, None)
+                raw, capped = await self._transcribe_chunk(session, path, duration, None)
+                transcript = strip_loops(raw)
+                if capped or len(transcript) < 0.7 * len(raw):
+                    degenerate_ranges.append("gesamte Aufnahme")
 
         await status("Transkription abgeschlossen", done=True)
+        if degenerate_ranges:
+            transcript += (
+                "\n\n> ⚠️ Wiederholungs-Loops erkannt und gekürzt "
+                "(vermutlich Gesang/Musik): " + ", ".join(degenerate_ranges)
+            )
         return transcript
 
     @staticmethod
