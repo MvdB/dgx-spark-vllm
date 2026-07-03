@@ -36,6 +36,7 @@ curated profiles here take precedence over auto-generation for known-good models
 | `google--gemma-4-31B-it` | ✅ | v0.19.0+; Interleaved Attention → enforce_eager; 131072 ctx (262144 mit max_num_seqs=1) |
 | `google--gemma-4-E2B-it` | ✅ | v0.19.0+; 131072 ctx; Audio-Input ungetestet – Text/Vision empfohlen |
 | `google--gemma-4-E4B-it` | ✅ | v0.19.0+; 131072 ctx; Audio-Input ungetestet – Text/Vision empfohlen |
+| `ibm-granite--granite-speech-4.1-2b-plus` | ✅ | v0.23.0, auf GB10 validiert; ASR via `/v1/audio/transcriptions`, Sprecher-Diarization (SAA) via chat/completions mit manuellem `<|audio|>`-Präfix; `pip install vllm[audio]` beim Start; ctx 4096 ≈ max 5 min Audio |
 | `mistralai--Devstral-Small-2-24B-Instruct-2512` | ✅ | Standard image |
 | `mistralai--Ministral-3-14B-Instruct-2512` | ✅ | Standard image |
 | `mistralai--Ministral-3-14B-Reasoning-2512` | ✅ | Standard image |
