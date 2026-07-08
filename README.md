@@ -213,7 +213,8 @@ is diffable, and serves as archivable approval documentation.
 Per-model reports are written immediately after each model completes,
 so partial results survive early abort or timeout.
 
-Example reports are in [`testplan/reports/examples/`](testplan/reports/examples/).
+Reports are stored locally only and are never committed to the repository
+(`testplan/reports/` and `testplan/reports-archive/` are gitignored).
 
 ### Configuration
 
