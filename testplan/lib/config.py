@@ -55,6 +55,11 @@ class ModelConfig:
     notes: str = ""
     system_prompt: str = ""
     params_b: int = 0   # Gesamtparameter in Milliarden (0 = unbekannt)
+    # Sampling-Overrides für query_target, z.B. {temperature: 1.0, top_p: 0.95}
+    # (Nemotron: generation_config-Werte; quasi-greedy Decoding loopt in Think-Blöcken)
+    sampling: dict = field(default_factory=dict)
+    # Kwargs für das Chat-Template, z.B. {enable_thinking: true, low_effort: true}
+    chat_template_kwargs: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -188,6 +193,8 @@ class TestplanConfig:
                 notes=m.get("notes", ""),
                 system_prompt=m.get("system_prompt", ""),
                 params_b=m.get("params_b", 0),
+                sampling=m.get("sampling", {}) or {},
+                chat_template_kwargs=m.get("chat_template_kwargs", {}) or {},
             )
             for m in raw["models"]
         ]

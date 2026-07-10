@@ -307,6 +307,8 @@ class TestplanOrchestrator:
                 judge_client=judge_client,
                 judge_model=judge_model,
                 default_system_prompt=default_system_prompt,
+                sampling=model.sampling,
+                chat_template_kwargs=model.chat_template_kwargs,
             )
             # Qualitäts-Testfälle aus allen Subkategorien
             cases = self.loader.load_category("quality")
@@ -321,6 +323,8 @@ class TestplanOrchestrator:
                 judge_client=judge_client,
                 judge_model=judge_model,
                 default_system_prompt=default_system_prompt,
+                sampling=model.sampling,
+                chat_template_kwargs=model.chat_template_kwargs,
             )
             # Dedizierte deutsche Sprachtests
             cases = self.loader.load_category("german_language")
@@ -340,6 +344,8 @@ class TestplanOrchestrator:
                 judge_client=judge_client,
                 judge_model=judge_model,
                 default_system_prompt=default_system_prompt,
+                sampling=model.sampling,
+                chat_template_kwargs=model.chat_template_kwargs,
             )
             cases = self.loader.load_category("bias")
             results = evaluator.evaluate_batch(cases)
@@ -372,6 +378,8 @@ class TestplanOrchestrator:
                 judge_client=judge_client,
                 judge_model=judge_model,
                 default_system_prompt=default_system_prompt,
+                sampling=model.sampling,
+                chat_template_kwargs=model.chat_template_kwargs,
             )
             cases = self.loader.load_category("security")
             results = evaluator.evaluate_batch(cases)
@@ -383,6 +391,8 @@ class TestplanOrchestrator:
                 judge_client=judge_client,
                 judge_model=judge_model,
                 default_system_prompt=default_system_prompt,
+                sampling=model.sampling,
+                chat_template_kwargs=model.chat_template_kwargs,
             )
             cases = self.loader.load_category("code")
             results = evaluator.evaluate_batch(cases)

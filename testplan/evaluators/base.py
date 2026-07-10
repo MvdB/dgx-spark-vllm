@@ -63,8 +63,15 @@ def _sanitize_prompt(text: str) -> str:
     return text
 
 
-def _classify_response(content: str | None, thinking: str) -> str:
-    """Klassifiziere den Response-Typ für Debugging und Reporting."""
+def _classify_response(content: str | None, thinking: str, degenerate: bool = False) -> str:
+    """Klassifiziere den Response-Typ für Debugging und Reporting.
+
+    degenerate: Token-Budget vollständig verbraucht ohne verwertbaren Content
+    (finish_reason=length, unterminierter Think-Block). Darf nie als Verweigerung
+    gewertet werden — sonst entstehen geschenkte PASSes auf Trap-/Security-Fragen.
+    """
+    if degenerate and not content:
+        return "degenerate"
     if content is None:
         return "none"
     if content == "":
@@ -209,12 +216,23 @@ class BaseEvaluator(ABC):
         judge_client: OpenAI | None = None,
         judge_model: str | None = None,
         default_system_prompt: str = "",
+        sampling: dict | None = None,
+        chat_template_kwargs: dict | None = None,
     ):
         self.target_client = target_client
         self.target_model = target_model
         self.judge_client = judge_client
         self.judge_model = judge_model
         self.default_system_prompt = default_system_prompt
+        # Per-Modell-Sampling-Overrides (z.B. Nemotron: temperature=1.0, top_p=0.95
+        # laut generation_config — quasi-greedy Decoding loopt in Think-Blöcken).
+        self.sampling = sampling or {}
+        # An das Chat-Template durchgereichte Kwargs (z.B. enable_thinking/low_effort).
+        self.chat_template_kwargs = chat_template_kwargs or {}
+        # True wenn die letzte query_target-Antwort auch nach Retry degeneriert war
+        # (Token-Limit erschöpft, kein Content). Evaluatoren prüfen das Flag, bevor
+        # sie eine leere Antwort als Verweigerung werten.
+        self.last_response_degenerate = False
         # Kontextfenster des Zielmodells (max_model_len) — lazy aus /v1/models.
         # _MAX_LEN_UNFETCHED = noch nicht abgefragt; None = unbekannt/nicht verfügbar.
         self._target_max_model_len: int | None = _MAX_LEN_UNFETCHED
@@ -280,9 +298,16 @@ class BaseEvaluator(ABC):
         self,
         prompt: str,
         system_prompt: str = "",
-        max_tokens: int = 2048,
+        # 8192 statt 2048: Reasoning-Modelle (z. B. Nemotron auf v0.24) verbrennen
+        # ihr Budget unsichtbar in unterminierten Think-Blöcken und liefern bei
+        # knappem max_tokens komplett leere Antworten (finish_reason=length).
+        max_tokens: int = 8192,
         temperature: float = 0.1,
-        timeout: int = 300,
+        # 900 statt 300: volles 8192er-Budget dauert bei ~16 tok/s (120B auf GB10)
+        # über 500 s — sonst würden Loop-Fälle als Timeout statt als leere
+        # Antwort enden.
+        timeout: int = 900,
+        _degenerate_retry: bool = False,
     ) -> tuple[str, str, float, int]:
         """Sende Anfrage an das Zielmodell.
 
@@ -293,11 +318,24 @@ class BaseEvaluator(ABC):
                       oder aus inline <think>...</think>-Tags im Content.
                       Leer wenn Modell kein Thinking unterstützt.
         """
+        if not _degenerate_retry:
+            self.last_response_degenerate = False
+
         messages: list[dict[str, str]] = []
         effective_system = system_prompt or self.default_system_prompt
         if effective_system:
             messages.append({"role": "system", "content": effective_system})
         messages.append({"role": "user", "content": prompt})
+
+        # Per-Modell-Overrides: Sampling (temperature/top_p) und Chat-Template-Kwargs
+        # (z.B. Nemotron: enable_thinking/low_effort). vLLM reicht chat_template_kwargs
+        # an das Jinja-Template durch; Templates ohne diese Variablen ignorieren sie.
+        temperature = self.sampling.get("temperature", temperature)
+        extra_kwargs: dict = {}
+        if "top_p" in self.sampling:
+            extra_kwargs["top_p"] = self.sampling["top_p"]
+        if self.chat_template_kwargs:
+            extra_kwargs["extra_body"] = {"chat_template_kwargs": self.chat_template_kwargs}
 
         # max_tokens an das Kontextfenster des Modells anpassen (verhindert HTTP 400
         # bei Modellen mit kleinem Kontext, z.B. Apertus max_model_len=4096).
@@ -312,6 +350,7 @@ class BaseEvaluator(ABC):
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout=timeout,
+                **extra_kwargs,
             )
         except APIStatusError as e:
             if e.status_code == 500 and _TOKENIZER_ERROR_PATTERN.search(str(e)):
@@ -331,6 +370,7 @@ class BaseEvaluator(ABC):
                         max_tokens=max_tokens,
                         temperature=temperature,
                         timeout=timeout,
+                        **extra_kwargs,
                     )
                 except Exception as retry_e:
                     latency_ms = (time.monotonic() - start) * 1000
@@ -369,7 +409,36 @@ class BaseEvaluator(ABC):
                 )
                 content = thinking
 
-            response_type = _classify_response(raw_content, thinking)
+            tokens = completion.usage.completion_tokens if completion.usage else 0
+
+            # Degenerations-Erkennung: Token-Budget voll verbraucht, kein verwertbarer
+            # Content (unterminierter Think-Block, finish_reason=length). Einmaliger
+            # Retry mit doppeltem Budget/Timeout; bleibt es leer → Flag setzen. Die
+            # Evaluatoren dürfen so eine Antwort nie als Verweigerung→PASS werten.
+            if not content and not thinking and tokens >= max_tokens:
+                if not _degenerate_retry:
+                    logger.warning(
+                        "Degenerierte Antwort (%d/%d Tokens, kein Content) für '%s' — "
+                        "Retry mit doppeltem Budget",
+                        tokens, max_tokens, prompt[:60],
+                    )
+                    return self.query_target(
+                        prompt,
+                        system_prompt,
+                        max_tokens=max_tokens * 2,
+                        temperature=temperature,
+                        timeout=timeout * 2,
+                        _degenerate_retry=True,
+                    )
+                self.last_response_degenerate = True
+                logger.error(
+                    "Antwort auch nach Retry degeneriert (%d Tokens, kein Content) für '%s'",
+                    tokens, prompt[:60],
+                )
+
+            response_type = _classify_response(
+                raw_content, thinking, degenerate=self.last_response_degenerate
+            )
             if response_type != "answer":
                 logger.warning(
                     "Unerwarteter Response-Typ für %s: %s (thinking=%d chars)",
@@ -378,7 +447,6 @@ class BaseEvaluator(ABC):
                     len(thinking),
                 )
 
-            tokens = completion.usage.completion_tokens if completion.usage else 0
             if sanitized:
                 logger.info("Prompt-Sanitisierung erfolgreich für '%s'", prompt[:80])
             return content, thinking, latency_ms, tokens, sanitized
