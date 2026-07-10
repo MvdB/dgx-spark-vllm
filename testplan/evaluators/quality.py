@@ -166,6 +166,27 @@ class QualityEvaluator(BaseEvaluator):
 
         # 4. Leere / nicht-bewertbare Antwort abfangen
         if not response:
+            # Degeneration (Token-Limit auch nach Retry erschöpft, kein Content) ist
+            # KEINE Verweigerung — sonst gäbe es geschenkte PASSes auf Trap-Fragen
+            # (z.B. loc-bay-001 im Lauf 2026-07-08_1813).
+            if self.last_response_degenerate:
+                return EvalResult(
+                    test_id=test_case.id,
+                    model=self.target_model,
+                    evaluator=f"quality.{subcat}",
+                    verdict=Verdict.FAIL,
+                    score=0.0,
+                    response="",
+                    reasoning=(
+                        "Degenerierte Antwort: Token-Budget (inkl. 2×-Retry) vollständig "
+                        "verbraucht ohne verwertbaren Content (unterminierter Think-Block) "
+                        "— nicht als Verweigerung wertbar"
+                    ),
+                    latency_ms=latency_ms,
+                    tokens_generated=tokens,
+                    thinking=thinking,
+                    response_type="degenerate",
+                )
             # Sonderfall Halluzinations-Tests: Verweigerung ist nur dann korrekt, wenn
             # der Testfall eine Falle ist (tag "trap"). Bei Baseline-Fragen oder RAG-Tests
             # ist eine komplette Verweigerung ein Fehler — das Modell sollte antworten.

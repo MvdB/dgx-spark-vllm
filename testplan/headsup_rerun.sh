@@ -1,13 +1,9 @@
 #!/bin/bash
-# headsup_nemotron_run.sh — Heads-up Nemotron-Puzzle-75B vs Nemotron-3-Super-120B
-# auf vLLM v0.24.0, alle Playbooks (+ lokale *.local.jsonl-Testfälle, falls
-# vorhanden). Detached / fail-safe. Nach dem Lauf wird der granite-speech STT-Server
-# wieder gestartet (lief vor dem Lauf auf Port 8000).
+# headsup_rerun.sh — Re-Run der vom Leere-Antworten-Bug betroffenen Playbooks
+# für beide Nemotrons, nach Fix max_tokens 2048→8192 / timeout 300→900 in
+# evaluators/base.py. Danach consolidate + STT-Neustart.
 #
-# WICHTIG: Erst NACH bestandenem Smoke-Test beider Modelle auf v0.24.0 starten.
-# Fallback Super-120B: v0.18.0 (validiert). Puzzle-75B hat keinen Fallback.
-#
-# Usage (real): setsid nohup ./headsup_nemotron_run.sh > /dev/null 2>&1 < /dev/null & disown
+# Usage (real): setsid nohup ./headsup_rerun.sh > /dev/null 2>&1 < /dev/null & disown
 
 set -u
 cd /home/mvdb/dgx-spark-vllm/testplan
@@ -16,19 +12,19 @@ export TARGET_HOST=localhost
 
 TS="$(date +%Y%m%d_%H%M%S)"
 LOG_DIR="logs"; mkdir -p "$LOG_DIR"
-LOG="${LOG_DIR}/headsup_nemotron_${TS}.log"
+LOG="${LOG_DIR}/headsup_rerun_${TS}.log"
 
-# Klein → groß für frühe Ergebnisse.
 MODELS="Nemotron-Puzzle-75B,Nemotron-3-Super"
+PLAYBOOKS="01_quality,02_german_language,03_bias,04_security"
 
 {
-  echo "=== headsup_nemotron start $(date -Is) ==="
+  echo "=== headsup_rerun start $(date -Is) ==="
   echo "PID: $$ | Log: $LOG"
-  echo "Models: $MODELS | vLLM v0.24.0 | alle Playbooks"
+  echo "Models: $MODELS | Playbooks: $PLAYBOOKS | max_tokens=8192, timeout=900"
   echo
 
   echo "--- Phase 1: orchestrator (--continue-after-ko) ---"
-  python orchestrator.py --continue-after-ko --models "$MODELS"
+  python orchestrator.py --continue-after-ko --models "$MODELS" --playbooks "$PLAYBOOKS"
   echo "[$(date -Is)] orchestrator exit=$?"
 
   echo
@@ -46,5 +42,5 @@ MODELS="Nemotron-Puzzle-75B,Nemotron-3-Super"
   echo "[$(date -Is)] STT-Restart angestoßen"
 
   echo
-  echo "=== headsup_nemotron end $(date -Is) ==="
+  echo "=== headsup_rerun end $(date -Is) ==="
 } >> "$LOG" 2>&1
