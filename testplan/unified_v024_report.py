@@ -24,11 +24,19 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
+PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+CONFIG_YAML = Path(__file__).resolve().parent / "config" / "testplan.yaml"
+
+# Evaluator-Defaults (evaluators/base.py query_target) — für die Parameter-Blöcke.
+EVAL_DEFAULTS = (
+    "max_tokens 8192 · timeout 900 s · temperature 0.1 (sofern nicht per Modell "
+    "überschrieben) · Degenerations-Guard: Budget erschöpft ohne Content → 1× Retry "
+    "mit 2× Budget, danach FAIL statt Refusal-PASS"
+)
 
 # Vergleichskohorte: (Anzeigename, JSON-Modellname, params_b, Familie, Quant, Arch/Runtime-Notiz)
 MODELS = [
@@ -174,6 +182,104 @@ def perf_metrics(data: dict) -> dict | None:
         return None
 
 
+# Anzeige-Reihenfolge und Labels für die Profil-Variablen im Parameter-Block.
+PROFILE_LABELS = [
+    ("DOCKER_IMAGE",           "Image"),
+    ("MAX_MODEL_LEN",          "Kontext"),
+    ("MAX_NUM_SEQS",           "max_num_seqs"),
+    ("MAX_NUM_BATCHED_TOKENS", "max_num_batched_tokens"),
+    ("GPU_MEM_UTIL",           "gpu_mem_util"),
+    ("KV_CACHE_DTYPE",         "KV-Cache"),
+    ("ATTENTION_BACKEND",      "Attention-Backend"),
+    ("ENFORCE_EAGER",          "enforce_eager"),
+    ("QUANTIZATION",           "Quantisierung"),
+    ("REASONING_PARSER",       "Reasoning-Parser"),
+    ("TOOL_CALL_PARSER",       "Tool-Call-Parser"),
+    ("USE_V2_MODEL_RUNNER",    "V2-Model-Runner"),
+    ("VLLM_EXTRA_ARGS",        "Extra-Args (u. a. MTP)"),
+    ("DOCKER_ENV",             "Docker-Env"),
+]
+
+
+def load_profile_params(profile: str) -> dict[str, str]:
+    """PROFILE_*-Variablen aus profiles/<profile>/vllm_profile.conf (kuratierte,
+    validierte Quelle). Bash-Array VLLM_EXTRA_ARGS wird zu einem String gefaltet."""
+    conf = PROFILES_DIR / profile / "vllm_profile.conf"
+    out: dict[str, str] = {}
+    if not conf.exists():
+        return out
+    for line in conf.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^PROFILE_([A-Z0-9_]+)=(.+)$", line.strip())
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if val.startswith("(") and val.endswith(")"):  # bash-Array
+            val = " ".join(p.strip("'\"") for p in re.findall(r"'[^']*'|\"[^\"]*\"|\S+", val[1:-1]))
+        else:
+            val = val.strip("'\"")
+        out[key] = val
+    return out
+
+
+def load_yaml_cfg() -> dict:
+    """testplan.yaml: Default-System-Prompt + je Modell sampling/chat_template_kwargs."""
+    import yaml
+    cfg = yaml.safe_load(CONFIG_YAML.read_text(encoding="utf-8"))
+    models = {m["name"]: m for m in cfg.get("models", [])}
+    return {"default_prompt": cfg.get("_default_system_prompt", ""), "models": models}
+
+
+def runtime_param_rows(r: dict, yaml_cfg: dict) -> list[tuple[str, str]]:
+    """(Label, Wert)-Liste für den Parameter-Block eines Modells. Fail-safe: bei
+    Fehlern lieber weniger Zeilen als ein kaputter Report."""
+    rows: list[tuple[str, str]] = []
+    try:
+        prof = load_profile_params(r["data"]["meta"].get("profile", ""))
+        for key, label in PROFILE_LABELS:
+            if key in prof:
+                val = prof[key]
+                if key in ("ENFORCE_EAGER", "ENABLE_AUTO_TOOL_CHOICE"):
+                    val = "ja" if val == "1" else val
+                if key == "USE_V2_MODEL_RUNNER":
+                    val = "aus" if val == "0" else val
+                rows.append((label, val))
+        mc = yaml_cfg["models"].get(r["name"]) or yaml_cfg["models"].get(r["mname"]) or {}
+        samp = mc.get("sampling") or {}
+        rows.append(("Sampling", ", ".join(f"{k}={v}" for k, v in samp.items())
+                     if samp else "temperature 0.1 (Evaluator-Default)"))
+        ctk = mc.get("chat_template_kwargs") or {}
+        if ctk:
+            rows.append(("chat_template_kwargs", ", ".join(f"{k}={v}" for k, v in ctk.items())))
+        rows.append(("Evaluator", EVAL_DEFAULTS))
+    except Exception as e:  # Sekundär-Output darf nie den Report reißen
+        rows.append(("Hinweis", f"Parameter unvollständig ({e})"))
+    return rows
+
+
+def inject_params_md(body: str, rows: list[tuple[str, str]]) -> str:
+    """Parameter-Tabelle direkt oberhalb von '## Playbook-Ergebnisse' einfügen."""
+    block = ["## Run-Parameter", "", "| Parameter | Wert |", "|-----------|------|"]
+    block += [f"| {k} | `{v}` |" for k, v in rows]
+    block += ["", ""]
+    marker = "## Playbook-Ergebnisse"
+    if marker in body:
+        return body.replace(marker, "\n".join(block) + marker, 1)
+    return body + "\n" + "\n".join(block)
+
+
+def inject_params_html(body: str, rows: list[tuple[str, str]]) -> str:
+    trs = "\n".join(
+        f"<tr><td style='text-align:left;font-weight:600;white-space:nowrap'>{k}</td>"
+        f"<td style='text-align:left'><code>{v}</code></td></tr>" for k, v in rows
+    )
+    block = (f"<h2>Run-Parameter</h2>\n<table><thead><tr><th>Parameter</th>"
+             f"<th>Wert</th></tr></thead><tbody>\n{trs}\n</tbody></table>\n")
+    marker = "<h2>Playbook-Ergebnisse</h2>"
+    if marker in body:
+        return body.replace(marker, block + marker, 1)
+    return body
+
+
 def md_inline_to_html(s: str) -> str:
     """Minimal: **fett** → <b>, _kursiv_ → <i>. Genug für die Kernaussagen."""
     s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
@@ -187,7 +293,7 @@ def _fmt_ms(v: float | None) -> str:
     return f"{v/1000:.1f} s" if v >= 1000 else f"{v:.0f} ms"
 
 
-def build_html(rows: list[dict], generated: str) -> str:
+def build_html(rows: list[dict], generated: str, sys_prompt: str = "") -> str:
     # rows: list of dicts with name, mname, params_b, family, quant, arch, data
     ranked = sorted(rows, key=lambda r: overall_rate(r["data"]), reverse=True)
 
@@ -385,13 +491,21 @@ def build_html(rows: list[dict], generated: str) -> str:
 {ko_rows}</tbody>
 </table>
 
+<h2>Basis-System-Prompt (alle Modelle)</h2>
+<p class="muted">Default-System-Prompt aus <code>config/testplan.yaml</code>, identisch für
+   alle 8 Modelle — inkl. der für diesen Lauf neuen Prämissenprüfung (Absatz 4).
+   Evaluator-Defaults: {EVAL_DEFAULTS}. Modellspezifische Sampling-/Template-Overrides
+   stehen im Parameter-Block des jeweiligen Einzelberichts.</p>
+<pre style="background:#fff;border:1px solid #eee;box-shadow:0 1px 3px rgba(0,0,0,.08);
+            padding:1rem;white-space:pre-wrap;font-size:.85rem;line-height:1.45">{sys_prompt}</pre>
+
 <footer>Quelldaten: reports/&lt;run&gt;/&lt;model&gt;.json (jüngster vollständiger Lauf je Modell).
         Generiert von unified_v024_report.py · Schwestergenerator zu small/medium_llm_report.py.</footer>
 </body></html>
 """
 
 
-def build_md(rows: list[dict], generated: str) -> str:
+def build_md(rows: list[dict], generated: str, sys_prompt: str = "") -> str:
     """Eigenständiges Markdown-Dokument (GitLab-tauglich), gleiche Inhalte wie HTML."""
     ranked = sorted(rows, key=lambda r: overall_rate(r["data"]), reverse=True)
     judge = rows[0]["data"]["meta"].get("judge", "—")
@@ -517,6 +631,20 @@ def build_md(rows: list[dict], generated: str) -> str:
             f"{', '.join(reasons) if reasons else '—'} |"
         )
     L.append("")
+
+    # ---- Basis-System-Prompt ----
+    L.append("## Basis-System-Prompt (alle Modelle)")
+    L.append("")
+    L.append("Default-System-Prompt aus `config/testplan.yaml`, identisch für alle 8 "
+             "Modelle — inkl. der für diesen Lauf neuen Prämissenprüfung (Absatz 4). "
+             f"Evaluator-Defaults: {EVAL_DEFAULTS}. Modellspezifische Sampling-/"
+             "Template-Overrides stehen im Run-Parameter-Block des jeweiligen "
+             "Einzelberichts.")
+    L.append("")
+    L.append("```text")
+    L.append(sys_prompt.rstrip())
+    L.append("```")
+    L.append("")
     L.append(
         "---\n\n_Quelldaten: reports/&lt;run&gt;/&lt;model&gt;.json (jüngster vollständiger "
         "Lauf je Modell). Generiert von `unified_v024_report.py`._"
@@ -548,15 +676,22 @@ def main() -> None:
     if not rows:
         raise SystemExit("Keine Modell-Reports gefunden.")
 
+    try:
+        yaml_cfg = load_yaml_cfg()
+    except Exception as e:  # fail-safe: Report auch ohne yaml-Kontext erzeugen
+        print(f"  ! testplan.yaml nicht lesbar ({e}) — Prompt/Sampling entfallen")
+        yaml_cfg = {"default_prompt": "", "models": {}}
+    sys_prompt = yaml_cfg["default_prompt"]
+
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    html = build_html(rows, generated)
+    html = build_html(rows, generated, sys_prompt)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(html, encoding="utf-8")
     print(f"\n→ {args.out}")
 
     md_out = args.md or args.out.with_suffix(".md")
     md_out.parent.mkdir(parents=True, exist_ok=True)
-    md_out.write_text(build_md(rows, generated), encoding="utf-8")
+    md_out.write_text(build_md(rows, generated, sys_prompt), encoding="utf-8")
     print(f"→ {md_out}")
 
     # Einzelberichte je Modell daneben bündeln (verlinkt aus der Übersicht).
@@ -566,14 +701,16 @@ def main() -> None:
     backlink = "[← Zurück zur Übersicht](../index.md)\n\n"
     for r in rows:
         src_dir = Path(r["data"]["_dir"])
+        params = runtime_param_rows(r, yaml_cfg)
         src_html = src_dir / f"{r['mname']}.html"
         if src_html.exists():
-            shutil.copy2(src_html, details_dir / f"{r['mname']}.html")
+            body = inject_params_html(src_html.read_text(encoding="utf-8"), params)
+            (details_dir / f"{r['mname']}.html").write_text(body, encoding="utf-8")
         src_md = src_dir / f"{r['mname']}.md"
         if src_md.exists():
-            body = src_md.read_text(encoding="utf-8")
+            body = inject_params_md(src_md.read_text(encoding="utf-8"), params)
             (details_dir / f"{r['mname']}.md").write_text(backlink + body, encoding="utf-8")
-            print(f"  ↳ einzel: details/{r['mname']}.md")
+            print(f"  ↳ einzel: details/{r['mname']}.md ({len(params)} Parameter)")
         else:
             print(f"  ! Einzel-MD fehlt für {r['name']}: {src_md}")
 
