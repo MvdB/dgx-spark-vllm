@@ -172,6 +172,8 @@ KNOWN_GOOD = {
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_TOOL_CALL_PARSER":        "gemma4",
+        "PROFILE_ENABLE_AUTO_TOOL_CHOICE": 1,
         "PROFILE_NOTES": (
             "Gemma 4 31B Dense. 60 Layer (10 full, 50 sliding), sliding_window=1024. "
             "BF16 ~62 GB. Interleaved Attention → enforce_eager. "
@@ -193,6 +195,8 @@ KNOWN_GOOD = {
         "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_TOOL_CALL_PARSER":        "gemma4",
+        "PROFILE_ENABLE_AUTO_TOOL_CHOICE": 1,
         "PROFILE_DOCKER_IMAGE":            "spark-gemma4:v1",
         "PROFILE_NOTES": (
             "Gemma 4 E4B. 42 Layer (7 full, 35 sliding), sliding_window=512. "
@@ -211,6 +215,8 @@ KNOWN_GOOD = {
         "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_TOOL_CALL_PARSER":        "gemma4",
+        "PROFILE_ENABLE_AUTO_TOOL_CHOICE": 1,
         "PROFILE_DOCKER_IMAGE":            "spark-gemma4:v1",
         "PROFILE_NOTES": (
             "Gemma 4 E2B. 35 Layer (7 full, 28 sliding), sliding_window=512. "
