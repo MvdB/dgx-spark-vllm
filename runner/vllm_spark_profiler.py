@@ -141,12 +141,13 @@ KNOWN_GOOD = {
     #
     # 26B A4B MoE · 30 Layer (5 full, 25 sliding) · BF16 ~52 GB
     # Global-KV pro Token: 5 × 2 heads × 512 dim × 2 (K+V) × 1 Byte = 10.240 Byte
-    # Bei max_model_len=131072, max_num_seqs=2: ~2,6 GB KV → sehr großzügig.
+    # Bei max_model_len=131072, max_num_seqs=16: ~21 GB KV-Obergrenze — vLLM v0.25.1
+    # meldet 58 GiB frei (33x Concurrency bei 131k); 2 war Bringup-Konservativwert.
     "google--gemma-4-26B-A4B-it": {
         "PROFILE_VLLM_COMPATIBLE":         1,
         "PROFILE_GPU_MEM_UTIL":            "0.88",
         "PROFILE_MAX_MODEL_LEN":           131072,
-        "PROFILE_MAX_NUM_SEQS":            2,
+        "PROFILE_MAX_NUM_SEQS":            16,
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_REASONING_PARSER":        "gemma4",
@@ -154,7 +155,7 @@ KNOWN_GOOD = {
             "Gemma 4 26B A4B MoE. 30 Layer (5 full, 25 sliding), sliding_window=1024. "
             "BF16 ~52 GB. MoE (128 Experten, top-8) + Interleaved Attention → enforce_eager. "
             "Nur Full-Attention-Layer skalieren mit Kontext: 5 × 2 × 512 × 2 = 10.240 B/Token. "
-            "Bei 2 Seq. und 131072 Token nur ~2,6 GB KV-Cache. "
+            "Bei 16 Seq. und 131072 Token max. ~21 GB KV-Cache. "
             "Benötigt vllm/vllm-openai:v0.19.1+."
         ),
     },
