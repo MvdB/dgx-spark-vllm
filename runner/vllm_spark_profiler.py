@@ -151,6 +151,8 @@ KNOWN_GOOD = {
         "PROFILE_KV_CACHE_DTYPE":          "fp8",
         "PROFILE_ENFORCE_EAGER":           1,
         "PROFILE_REASONING_PARSER":        "gemma4",
+        "PROFILE_TOOL_CALL_PARSER":        "gemma4",
+        "PROFILE_ENABLE_AUTO_TOOL_CHOICE": 1,
         "PROFILE_NOTES": (
             "Gemma 4 26B A4B MoE. 30 Layer (5 full, 25 sliding), sliding_window=1024. "
             "BF16 ~52 GB. MoE (128 Experten, top-8) + Interleaved Attention → enforce_eager. "
