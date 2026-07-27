@@ -45,7 +45,7 @@ Optionen:
 Umgebungsvariablen (Defaults in Klammern):
   HF_MODELS_DIR              ($HOME/hf_models)   Lokales HF-Modell-Verzeichnis.
   IMAGE_REPO                 (vllm/vllm-openai)
-  DEFAULT_VLLM_TAG           (v0.17.1)
+  DEFAULT_VLLM_TAG           (26.03.post1-py3)
   LATEST_VLLM_VERSION        (leer -> DEFAULT_VLLM_TAG wird genutzt)
   CONTAINER_NAME             (vllm-server)
   HOST_PORT                  (8000)
@@ -294,6 +294,19 @@ stage_model_pick() {
       err "Kein Modell matcht Pattern: ${SELECT_PATTERN}"
       print_models
       exit 1
+    fi
+
+    # Exakter Treffer schlägt Substring-Mehrdeutigkeit (z.B. 'foo-2b' vs 'foo-2b-plus')
+    if (( ${#matches[@]} > 1 )); then
+      for e in "${matches[@]}"; do
+        split_model_entry "${e}"
+        local exact_lc
+        exact_lc="$(echo "${MODEL_LABEL}" | tr '[:upper:]' '[:lower:]')"
+        if [[ "${exact_lc}" == "${pat_lc}" ]]; then
+          matches=("${e}")
+          break
+        fi
+      done
     fi
 
     if (( ${#matches[@]} == 1 )); then

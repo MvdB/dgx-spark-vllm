@@ -121,7 +121,7 @@ Central config: `testplan/config/testplan.yaml` — defines infrastructure (judg
 |---|---|---|
 | `HF_MODELS_DIR` | `~/hf_models` | Local model store |
 | `IMAGE_REPO` | `vllm/vllm-openai` | Docker image repo |
-| `DEFAULT_VLLM_TAG` | `v0.17.1` | vLLM image tag |
+| `DEFAULT_VLLM_TAG` | `26.03.post1-py3` | vLLM image tag (fallback; curated profiles pin their own image via `PROFILE_DOCKER_IMAGE`) |
 | `CONTAINER_NAME` | `vllm-server` | Docker container name |
 | `HOST_PORT` | `8000` | Host port for API |
 | `HF_TOKEN` | — | HuggingFace token (or `HUGGING_FACE_HUB_TOKEN`) |
