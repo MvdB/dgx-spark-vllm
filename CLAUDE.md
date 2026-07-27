@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo does
 
-Tooling for running vLLM on the **NVIDIA DGX Spark** (GB10 SoC, sm_120, 128 GB unified memory). Three subsystems:
+Tooling for running vLLM on the **NVIDIA DGX Spark** (GB10 SoC, sm_120, 128 GB unified memory). Two subsystems:
 
 1. **`runner/`** – Bash + Python scripts that start a vLLM Docker container for any local model, generating and loading per-model parameter profiles.
 2. **`testplan/`** – Automated LLM evaluation framework. Two-Spark setup: Spark A runs a static judge (Magistral-Small-2509), Spark B rotates target models. 7 playbooks (quality, German, bias, security, code, performance, HSF). Generates per-model reports + cross-model dashboard.
-3. **`repo-sync/`** – Python script that mirrors a named HuggingFace collection to `~/hf_models/` using commit-SHA-based update detection.
+
+The HuggingFace collection mirror (`hf-sync`, formerly `repo-sync/` here) lives in the sibling repo [dgx-spark-core](https://github.com/MvdB/dgx-spark-core); it populates `~/hf_models/` and defines the `<owner>--<model-name>` directory naming.
 
 ## Common commands
 
@@ -36,9 +37,6 @@ python3 runner/test_models.py qwen3.5-9b
 
 # Build custom Docker image for Mistral-Small-4
 docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
-
-# Sync HuggingFace collection to ~/hf_models/
-cd repo-sync && source .venv/bin/activate && python hf_sync.py
 
 # --- testplan ---
 # Dry run (show config, don't execute)
@@ -88,7 +86,7 @@ Iterates compatible models, calls `vllm_spark.sh --skip-pull` per model, polls `
 
 ### Model directory naming
 
-HuggingFace model IDs use `--` instead of `/`: `mistralai/Mistral-7B-v0.1` → `mistralai--Mistral-7B-v0.1`. The profiler and sync script both follow this convention.
+HuggingFace model IDs use `--` instead of `/`: `mistralai/Mistral-7B-v0.1` → `mistralai--Mistral-7B-v0.1`. The profiler and dgx-spark-core's hf-sync both follow this convention.
 
 ### Per-model custom Docker images
 
@@ -129,13 +127,3 @@ Central config: `testplan/config/testplan.yaml` — defines infrastructure (judg
 | `HF_TOKEN` | — | HuggingFace token (or `HUGGING_FACE_HUB_TOKEN`) |
 | `VLLM_EXTRA_ARGS` | — | Extra flags appended to `vllm serve` |
 
-## repo-sync setup
-
-```bash
-cd repo-sync
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # add HF_TOKEN
-```
-
-Set `HF_COLLECTION` in `.env` to match the collection name (default: `LocalCache`).
