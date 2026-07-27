@@ -1,8 +1,11 @@
 # dgx-spark-vllm
 
 Tooling for running [vLLM](https://github.com/vllm-project/vllm) on the
-**NVIDIA DGX Spark** (GB10 SoC, 128 GB unified memory) and keeping a local
-HuggingFace model collection in sync.
+**NVIDIA DGX Spark** (GB10 SoC, 128 GB unified memory), plus an automated
+LLM evaluation framework.
+
+Shared infrastructure (HuggingFace collection mirror, common tooling) lives in
+[dgx-spark-core](https://github.com/MvdB/dgx-spark-core).
 
 ## Repository structure
 
@@ -22,14 +25,8 @@ dgx-spark-vllm/
 │   ├── evaluators/            #   quality, bias, security, code, performance
 │   ├── playbooks/             #   7 test playbooks with judge prompts
 │   └── testdata/              #   JSONL test cases (76 across 7 categories)
-├── custom/                    # Custom Docker images for models needing special kernels
-│   └── Dockerfile.mistral-small4  # avarok/dgx-vllm-nvfp4-kernel base + mistral_common
-└── repo-sync/                 # HuggingFace collection sync
-    ├── hf_sync.py             #   sync script (Linux / macOS)
-    ├── hf_sync.bat            #   Windows wrapper
-    ├── requirements.txt
-    ├── pyproject.toml
-    └── .env.example
+└── custom/                    # Custom Docker images for models needing special kernels
+    └── Dockerfile.mistral-small4  # avarok/dgx-vllm-nvfp4-kernel base + mistral_common
 ```
 
 ---
@@ -40,7 +37,8 @@ dgx-spark-vllm/
 
 - Docker with GPU support (`--gpus all`)
 - `python3` in PATH
-- Local model directory (default `~/hf_models/`, populated by `repo-sync/hf_sync.py`)
+- Local model directory (default `~/hf_models/`, populated by
+  [dgx-spark-core](https://github.com/MvdB/dgx-spark-core)'s `hf-sync`)
 
 ### Quickstart
 
@@ -228,40 +226,13 @@ prompt injection.
 
 ---
 
-## repo-sync – HuggingFace collection sync
+## HuggingFace collection sync
 
-Keeps a named HuggingFace collection mirrored locally.
-Updates are detected via commit SHA – already-current models are skipped.
-
-### Setup
-
-```bash
-cd repo-sync
-python -m venv .venv
-
-# Linux / macOS
-source .venv/bin/activate
-
-# Windows
-.venv\Scripts\activate
-
-pip install -r requirements.txt
-cp .env.example .env
-# → insert your HF_TOKEN
-```
-
-### Usage
-
-```bash
-# Linux / macOS
-python hf_sync.py
-
-# Windows
-hf_sync.bat
-```
-
-Set `HF_COLLECTION` in `.env` to match the exact (or partial) name of your
-collection.  Default is `LocalCache`.
+The collection mirror (`hf-sync`, formerly `repo-sync/` in this repo) moved to
+[dgx-spark-core](https://github.com/MvdB/dgx-spark-core). It keeps a named
+HuggingFace collection mirrored to `~/hf_models/` with commit-SHA-based update
+detection; the `<owner>--<model-name>` directory naming used throughout this
+repo is defined there.
 
 ### Local directory layout
 
