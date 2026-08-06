@@ -63,6 +63,10 @@ Schema-validiert gegen `../schema.json`; `category: guardrails`
 und `expected.type: label` sind dort ergaenzt, `guardrails` ist in
 `lib/testdata.py::load_all` registriert.
 
+Der Satz ist derzeit **text-only**. Bildfaelle fuer die multimodalen Guards
+(Shieldstral, Nemotron 3/3.5) sind als spaetere Erweiterung vorgesehen — siehe
+`testplan/guards/README.md`, Abschnitt "TODO: Bild-Moderation".
+
 ## Warnhinweis
 
 `unsafe.jsonl` und `jailbreak.jsonl` enthalten bewusst schaedlich formulierte
