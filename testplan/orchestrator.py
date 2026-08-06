@@ -50,6 +50,7 @@ from lib.vllm_control import VllmController, VllmInstance
 from evaluators.base import EvalResult, PlaybookResult, Verdict
 from evaluators.bias import BiasEvaluator
 from evaluators.code_eval import CodeEvaluator
+from evaluators.guard import GuardEvaluator
 from evaluators.performance import HSFCalibrator, PerformanceEvaluator
 from evaluators.quality import QualityEvaluator
 from evaluators.security import PromptfooRunner, SecurityEvaluator
@@ -107,14 +108,15 @@ class TestplanOrchestrator:
 
         logger.info("Zu testende Modelle: %s", [m.name for m in models])
 
-        # Playbooks bestimmen
-        playbooks = [
-            p for p in self.config.playbooks
-            if p.enabled and (
-                not self.args.playbooks
-                or p.name in self.args.playbooks.split(",")
-            )
-        ]
+        # Playbooks bestimmen. Ohne --playbooks: alle enabled. Mit --playbooks:
+        # exakt die genannten — auch wenn sie per Default enabled:false sind
+        # (explizit angefordert schlägt Default). So laufen Sonder-Playbooks wie
+        # 08_guardrails oder 07_hsf_calibration nur auf ausdrücklichen Wunsch.
+        if self.args.playbooks:
+            wanted = [n.strip() for n in self.args.playbooks.split(",")]
+            playbooks = [p for p in self.config.playbooks if p.name in wanted]
+        else:
+            playbooks = [p for p in self.config.playbooks if p.enabled]
         logger.info("Aktive Playbooks: %s", [p.name for p in playbooks])
 
         if self.args.dry_run:
@@ -441,6 +443,31 @@ class TestplanOrchestrator:
                 reasoning=reasoning,
                 metadata=summary,
             ))
+
+        elif playbook_name == "08_guardrails":
+            protocol = model.guard_protocol
+            if not protocol:
+                logger.error(
+                    "Modell '%s' hat kein guard_protocol gesetzt — 08_guardrails "
+                    "übersprungen", model.name)
+                return results
+            th = self.config.thresholds
+            evaluator = GuardEvaluator(
+                target_client=target_client,
+                target_model=target_model,
+                judge_client=None,          # Guardrails braucht keinen Judge
+                judge_model=None,
+                default_system_prompt="",   # Guard-Modelle bringen ihr eigenes Format mit
+                sampling=model.sampling,
+                chat_template_kwargs=model.chat_template_kwargs,
+                guard_protocol=protocol,
+                threshold=th.guard_shieldstral_threshold,
+                reasoning_effort=th.guard_safeguard_reasoning_effort,
+                ko_max_false_negative_rate=th.guard_max_false_negative_rate,
+                ko_max_false_positive_rate=th.guard_max_false_positive_rate,
+            )
+            cases = self.loader.load_category("guardrails")
+            results = evaluator.evaluate_batch(cases)
 
         elif playbook_name == "07_hsf_calibration":
             logger.info("HSF-Kalibrierung — benötigt Zugang zu Produktionsmaschine")

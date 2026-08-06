@@ -1,0 +1,67 @@
+# =============================================================================
+# Playbook 08: Guardrails
+# =============================================================================
+# Bewertung von Guard-/Safety-Modellen als Klassifikatoren gegen gelabelte
+# Testdaten. Das Guard-Modell IST der Klassifikator — es gibt KEINEN LLM-Judge.
+# Die Wahrheit steht im Label (expected.type=label, value safe|unsafe).
+#
+# Anders als 04_security (das prueft, ob ein Zielmodell Angriffen widersteht)
+# prueft 08_guardrails, wie gut ein dediziertes Guard-Modell sicheren von
+# unsicherem Inhalt trennt — in beide Richtungen.
+#
+# K.O.-Kriterien (Schwellen in config/testplan.yaml → thresholds.guardrails):
+# - Falsch-Negativ-Rate ueber Schwelle  → K.O. (Sicherheitsversagen: echter
+#   Schaden durchgelassen)
+# - Falsch-Positiv-Rate ueber Schwelle  → K.O. (Ueberblocken: legitime Inhalte
+#   blockiert; im Betrieb der haeufigere Grund fuer Unbrauchbarkeit)
+# =============================================================================
+
+name: "08_guardrails"
+description: "Guard-Modelle als safe/unsafe-Klassifikator: Recall, FPR, Trap-FPR, F1"
+version: "1.0"
+timeout_minutes: 45
+
+evaluator: "guard"          # evaluators/guard.py — kein Judge
+# Es gibt keine judge_prompts: das Label ist die Wahrheit. Das Aufrufprotokoll
+# je Modell steht in der Modell-Config (guard_protocol) und in
+# evaluators/guard_adapters.py.
+
+# ---------------------------------------------------------------------------
+# Testdaten
+# ---------------------------------------------------------------------------
+# Kategorie 'guardrails' (testdata/guardrails/*.jsonl), 82 Faelle:
+#   unsafe(18)    — eindeutig schaedliche Anfragen, 10 Schadensklassen
+#   traps(20)     — harmlos, klingt gefaehrlich (WICHTIGSTE Klasse fuer die FPR)
+#   benign(12)    — klar harmlose Alltags-/Faktenfragen
+#   jailbreak(10) — Umgehungsversuche (DAN, Rollenspiel, Obfuskation, Encoding)
+#   response(10)  — Prompt+Antwort-Paare, Label = Sicherheit der ANTWORT
+#   en_mirror(12) — englischer Spiegel fuer den Mehrsprachigkeits-Abfall
+
+# ---------------------------------------------------------------------------
+# Metriken (evaluators/guard.py → guard.aggregate)
+# ---------------------------------------------------------------------------
+metrics:
+  - confusion_matrix        # TP / TN / FP / FN / errors
+  - recall                  # TPR auf unsafe = 1 - Falsch-Negativ-Rate
+  - fpr                     # Falsch-Positiv-Rate auf allen safe-Faellen
+  - trap_fpr                # FPR nur auf den Fehlalarm-Fallen (betriebsentscheidend)
+  - precision
+  - f1
+  - accuracy
+  - latency_ms_mean
+  - latency_ms_p95
+
+# ---------------------------------------------------------------------------
+# Guard-Modelle (Protokoll je Modell in config/testplan.yaml, guard_protocol)
+# ---------------------------------------------------------------------------
+# granite     → Granite Guardian 4.1 8B (Guardian-Block, <score>yes|no</score>)
+# nemotron    → Nemotron 3 / 3.5 Content Safety (chat_template_kwargs, Aegis)
+# safeguard   → gpt-oss-safeguard-20b (Policy im System-Prompt, JSON)
+# shieldstral → Shieldstral 1.0 3B (Logprob-Score, Schwelle einstellbar)
+
+notes: >
+  Guard-Modelle rotieren wie die uebrigen Zielmodelle ueber Spark B. Da die
+  getunten Profile nur ~0.30 Mem-Util belegen, koennen mehrere Guards
+  gleichzeitig laufen (verifiziert 2026-08-06) — fuer Guard-gegen-Guard-
+  Vergleiche die natuerlichere Form. Kein Judge noetig; JUDGE_* kann auf ein
+  beliebiges laufendes Modell zeigen oder wird ignoriert.
