@@ -22,8 +22,8 @@ dgx-spark-vllm/
 │   ├── orchestrator.py        #   end-to-end test runner
 │   ├── dashboard.py           #   cross-model comparison dashboard
 │   ├── config/testplan.yaml   #   central config (models, thresholds, playbooks)
-│   ├── evaluators/            #   quality, bias, security, code, performance
-│   ├── playbooks/             #   7 test playbooks with judge prompts
+│   ├── evaluators/            #   quality, bias, security, code, performance, guard
+│   ├── playbooks/             #   8 test playbooks with judge prompts
 │   └── testdata/              #   JSONL test cases (76 across 7 categories)
 └── custom/                    # Custom Docker images for models needing special kernels
     └── Dockerfile.mistral-small4  # avarok/dgx-vllm-nvfp4-kernel base + mistral_common
@@ -164,11 +164,13 @@ Spark B rotates through the target models under test.
 
 ### What it tests
 
-Seven playbooks covering quality (hallucination, factual accuracy, coherence,
+Eight playbooks covering quality (hallucination, factual accuracy, coherence,
 instruction-following), German language quality, demographic bias (paired testing
 with Chi² significance), security (prompt injection, PII leakage, jailbreak),
 code generation (correctness + SAST), performance (TTFT, throughput, concurrency),
-and hardware scaling factor calibration.
+hardware scaling factor calibration, and guardrails (dedicated safety/guard models
+scored against labeled data — confusion matrix, recall, false-positive rate; no
+LLM judge). See [`testplan/guards/README.md`](testplan/guards/README.md).
 
 ### Quickstart
 

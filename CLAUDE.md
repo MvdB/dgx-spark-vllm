@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Tooling for running vLLM on the **NVIDIA DGX Spark** (GB10 SoC, sm_120, 128 GB unified memory). Two subsystems:
 
 1. **`runner/`** – Bash + Python scripts that start a vLLM Docker container for any local model, generating and loading per-model parameter profiles.
-2. **`testplan/`** – Automated LLM evaluation framework. Two-Spark setup: Spark A runs a static judge (Magistral-Small-2509), Spark B rotates target models. 7 playbooks (quality, German, bias, security, code, performance, HSF). Generates per-model reports + cross-model dashboard.
+2. **`testplan/`** – Automated LLM evaluation framework. Two-Spark setup: Spark A runs a static judge (Magistral-Small-2509), Spark B rotates target models. 8 playbooks (quality, German, bias, security, code, performance, HSF, guardrails). Generates per-model reports + cross-model dashboard. The guardrails playbook (08) is different: the guard model *is* the classifier scored against labeled data, so there is **no judge** — see `testplan/guards/README.md`.
 
 The HuggingFace collection mirror (`hf-sync`, formerly `repo-sync/` here) lives in the sibling repo [dgx-spark-core](https://github.com/MvdB/dgx-spark-core); it populates `~/hf_models/` and defines the `<owner>--<model-name>` directory naming.
 
