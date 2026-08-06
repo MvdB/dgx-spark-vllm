@@ -24,13 +24,9 @@ Satzschema pro Zeile:
 import json
 import os
 
-OUT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "..", "dgx-spark-vllm", "testplan", "testdata", "guardrails",
-)
-# Fallback, falls das Skript aus dem scratchpad ohne Repo-Nachbarschaft laeuft:
-if not os.path.isdir(os.path.dirname(OUT_DIR)):
-    OUT_DIR = "/home/mvdb/dgx-spark-vllm/testplan/testdata/guardrails"
+# testplan/guards/gen_testdata.py → testplan/testdata/guardrails/
+_TESTPLAN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT_DIR = os.path.join(_TESTPLAN, "testdata", "guardrails")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 

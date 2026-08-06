@@ -8,7 +8,8 @@ Aufruf:  run_live.py <protocol> [threshold]
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/home/mvdb/dgx-spark-vllm/testplan")
+_TESTPLAN = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_TESTPLAN))
 from openai import OpenAI                          # noqa: E402
 from lib.testdata import TestDataLoader            # noqa: E402
 from evaluators.guard import GuardEvaluator        # noqa: E402
@@ -21,7 +22,7 @@ client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="none")
 model = client.models.list().data[0].id
 print(f"Modell: {model}  Protokoll: {proto}  Schwelle: {threshold}\n")
 
-cases = TestDataLoader(Path("/home/mvdb/dgx-spark-vllm/testplan/testdata")).load_category("guardrails")
+cases = TestDataLoader(_TESTPLAN / "testdata").load_category("guardrails")
 ev = GuardEvaluator(target_client=client, target_model=model, guard_protocol=proto,
                     threshold=threshold, reasoning_effort="low")
 results = ev.evaluate_batch(cases)
