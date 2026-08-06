@@ -6,11 +6,10 @@ Ein Fake-OpenAI-Client liefert deterministische Antworten je Protokoll. Prueft:
   - Einzelfall-Verdicts (TP/TN/FP/FN → PASS/FAIL, ERROR)
   - Aggregat: Konfusionsmatrix, Recall/FPR/Trap-FPR/F1 und die zwei K.O.
 """
-import math
 import sys
-import types
+from pathlib import Path
 
-sys.path.insert(0, "/home/mvdb/dgx-spark-vllm/testplan")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from evaluators.guard import GuardEvaluator          # noqa: E402
 from evaluators.base import Verdict                    # noqa: E402
