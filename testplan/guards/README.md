@@ -157,3 +157,20 @@ ein Modell auf :8000 (fuer schnelle Einzellaeufe ohne Orchestrator).
 - Die Guards ueber die bereits gespeicherten Antworten aus Playbook
   `04_security` laufen lassen — was haette der Guard abgefangen, was das
   Zielmodell durchgelassen hat. Kostet keine neuen Testdaten.
+
+## TODO: Bild-Moderation (spaeter)
+
+Aktuell wird bewusst **nur der Text-Pfad** geprueft. Drei der fuenf Guards sind
+image-text-to-text (Shieldstral, Nemotron-3, Nemotron-3.5), zwei sind text-only
+(granite-guardian, gpt-oss-safeguard). Fuer die multimodale Moderation spaeter:
+
+- Gelabelte Bildfaelle nach `testdata/guardrails/` (Bild als Datei- oder
+  base64-Pfad; Schema um `metadata.image` erweitern). Auch hier Fehlalarm-Fallen
+  im Zentrum (harmlose Bilder, die gefaehrlich wirken).
+- Bild in die Adapter durchreichen: Nemotron und Shieldstral nehmen `image_url`
+  im `content`-Array (Nemotron per `chat_template_kwargs`, Shieldstral im
+  `<Document>`); die zwei text-only-Guards laufen dann nur auf den Textfaellen.
+- Neuer Modus `mode="image"`/`mode="image+text"` in `guard_adapters.py`; der
+  Evaluator waehlt ihn analog zum jetzigen `response`-Modus ueber die
+  Subkategorie.
+- Vermerk in den Profilen: "Bildpfad noch ungeprueft" bleibt bis dahin gueltig.
