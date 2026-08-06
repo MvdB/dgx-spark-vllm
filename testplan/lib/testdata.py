@@ -3,7 +3,7 @@
 JSONL-Schema pro Zeile:
 {
     "id": "qual-001",
-    "category": "quality|bias|security|code|performance",
+    "category": "quality|bias|security|code|performance|guardrails",
     "subcategory": "hallucination|factual|coherence|...",
     "language": "de|en|fr|...",
     "difficulty": "easy|medium|hard",
@@ -145,7 +145,7 @@ class TestDataLoader:
         """Lade alle Kategorien."""
         categories = [
             "quality", "bias", "security", "code",
-            "german_language", "long_context", "performance",
+            "german_language", "long_context", "performance", "guardrails",
         ]
         return {cat: self.load_category(cat) for cat in categories if (self.base_dir / cat).exists()}
 
