@@ -259,6 +259,19 @@ repo is defined there.
 
 ---
 
+## Part of the southbyte family
+
+- [southbyte-core](https://github.com/MvdB/southbyte-core) — shared index
+- [southbyte-sync](https://github.com/MvdB/southbyte-sync) — HuggingFace collection mirror → local model store
+- [southbyte-vllm](https://github.com/MvdB/southbyte-vllm) — vLLM serving runner + LLM evaluation testplan *(this repo)*
+- [southbyte-tts](https://github.com/MvdB/southbyte-tts) — TTS/STT serving + German-language evaluation
+- [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) — DGX Spark (GB10) validated profiles, kernels, benchmarks
+- **southbyte-image** *(planned)* — text-to-image serving + evaluation (diffusers)
+
 ## License
 
 MIT – see [LICENSE](LICENSE)
+
+---
+
+Built by [southbyte](https://southbyte.de).
