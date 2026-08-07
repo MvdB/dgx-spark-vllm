@@ -16,6 +16,7 @@ import html
 import json
 import os
 import re
+import urllib.request
 from pathlib import Path
 
 TESTPLAN = Path(__file__).resolve().parent
@@ -26,6 +27,101 @@ TESTDATA_DIR = Path(os.environ.get("TESTDATA_DIR", TESTPLAN / "testdata"))
 GUARDS_DIR = Path(os.environ.get("GUARDS_DIR", TESTPLAN / "reports" / "guardrails"))
 
 HUB_URL = "https://results.southbyte.de/"
+HF_MODELS_DIR = Path(os.environ.get("HF_MODELS_DIR", Path.home() / "hf_models"))
+
+# SaaS-Modelle sind proprietär (API); Link auf den Anbieter statt HF.
+_SAAS_PROVIDER = [
+    ("claude", "Anthropic · proprietär (API)", "https://www.anthropic.com/claude"),
+    ("gpt", "OpenAI · proprietär (API)", "https://platform.openai.com/docs/models"),
+    ("gemini", "Google · proprietär (API)", "https://ai.google.dev/gemini-api/docs/models"),
+    ("grok", "xAI · proprietär (API)", "https://docs.x.ai/docs/models"),
+    ("xai", "xAI · proprietär (API)", "https://docs.x.ai/docs/models"),
+    ("magistral", "Mistral · proprietär (API)", "https://docs.mistral.ai/getting-started/models/"),
+    ("ministral", "Mistral · proprietär (API)", "https://docs.mistral.ai/getting-started/models/"),
+    ("mistral", "Mistral · proprietär (API)", "https://docs.mistral.ai/getting-started/models/"),
+]
+
+# Persistenter Lizenz-Cache (viele Modelle sind lokal retired → HF-API + Cache).
+_LIC_CACHE_FILE = TESTPLAN / "license_cache.json"
+try:
+    _lic_disk: dict[str, str] = json.loads(_LIC_CACHE_FILE.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    _lic_disk = {}
+_lic_dirty = [False]
+# Wenn weder README noch HF etwas liefern: bekannte Owner-Lizenzen.
+_OWNER_FALLBACK = [("nvidia--", "NVIDIA Open Model License"), ("LiquidAI--", "LFM Open License")]
+
+
+def _license_from_readme(profile: str) -> str:
+    try:
+        txt = (HF_MODELS_DIR / profile / "README.md").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+    m = re.match(r"^---\s*\n(.*?)\n---", txt, re.DOTALL)
+    fm = m.group(1) if m else txt[:2000]
+    lic = re.search(r"^license:\s*(.+)$", fm, re.MULTILINE)
+    name = re.search(r"^license_name:\s*(.+)$", fm, re.MULTILINE)
+    val = (lic.group(1).strip().strip('"\'') if lic else "")
+    if val.lower() in ("other", "") and name:
+        val = name.group(1).strip().strip('"\'')
+    return val
+
+
+def _license_from_hf(profile: str) -> str:
+    if "--" not in profile:
+        return ""
+    repo = profile.replace("--", "/", 1)
+    try:
+        req = urllib.request.Request("https://huggingface.co/api/models/" + repo,
+                                     headers={"User-Agent": "southbyte-site"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            d = json.loads(r.read())
+    except Exception:
+        return ""
+    cd = d.get("cardData") or {}
+    val = cd.get("license") or ""
+    if str(val).lower() in ("", "other"):
+        val = cd.get("license_name") or val
+    if not val:
+        for t in d.get("tags", []):
+            if str(t).startswith("license:"):
+                val = t.split(":", 1)[1]
+                break
+    return str(val or "")
+
+
+def model_license(profile: str, is_saas: bool) -> str:
+    """SaaS → proprietär; lokal → README, sonst HF-API (gecacht), sonst Owner-Fallback."""
+    if is_saas:
+        for needle, label, _ in _SAAS_PROVIDER:
+            if needle in profile.lower():
+                return label
+        return "proprietär (API)"
+    if not profile:
+        return "—"
+    if profile in _lic_disk:
+        return _lic_disk[profile]
+    val = _license_from_readme(profile) or _license_from_hf(profile)
+    if not val:
+        for pre, lab in _OWNER_FALLBACK:
+            if profile.startswith(pre):
+                val = lab
+                break
+    _lic_disk[profile] = val or "—"
+    _lic_dirty[0] = True
+    return _lic_disk[profile]
+
+
+def model_repo(profile: str, is_saas: bool) -> tuple[str, str]:
+    """(url, label) für den Repo-/Anbieter-Link."""
+    if is_saas:
+        for needle, _, url in _SAAS_PROVIDER:
+            if needle in profile.lower():
+                return url, "Anbieter ↗"
+        return "", ""
+    if "--" in profile:
+        return "https://huggingface.co/" + profile.replace("--", "/", 1), "HF ↗"
+    return "", ""
 
 EXCLUDE_PLAYBOOKS = {"04_security"}
 PLAYBOOK_LABELS = {
@@ -158,7 +254,8 @@ def _load_run_rows(files):
         pr = {k: v.get("pass_rate") for k, v in pbs.items()
               if k not in EXCLUDE_PLAYBOOKS and isinstance(v, dict)}
         rows.append({"model": name, "overall": summ.get("overall"), "pass_rate": summ.get("pass_rate"),
-                     "ko": summ.get("knockouts", 0), "pb": pr, "file": j, "stem": j.stem})
+                     "ko": summ.get("knockouts", 0), "pb": pr, "file": j, "stem": j.stem,
+                     "profile": meta.get("profile", ""), "is_saas": meta.get("source") == "saas_proxy"})
     rows.sort(key=lambda r: float(r["pass_rate"] or 0), reverse=True)
     return rows, saas
 
@@ -246,16 +343,19 @@ def llm_chapter(data, cid, title, lead, card_title):
     if not data or not data["rows"]:
         return "", card(card_title, "—", "keine Berichte")
     cols = list(PLAYBOOK_LABELS)
-    header = ["Modell", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
+    header = ["Modell", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols] + ["Lizenz"]
     rows = []
     for r in data["rows"]:
         ov = r["overall"] or "—"
         ov_html = f'<span class="ko">{esc(ov)}</span>' if ov == "K.O." else esc(ov)
-        link = f'<a href="m/{esc(r["stem"])}.html">{esc(r["model"])}</a>'
+        url, lbl = model_repo(r["profile"], r["is_saas"])
+        hf = f' <a href="{esc(url)}" title="Repo/Anbieter">↗</a>' if url else ""
+        link = f'<a href="m/{esc(r["stem"])}.html">{esc(r["model"])}</a>{hf}'
         cells = [link, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
         for c in cols:
             v = r["pb"].get(c)
             cells.append("—" if v is None else f"{round(float(v) * 100)}%")
+        cells.append(esc(model_license(r["profile"], r["is_saas"])))
         rows.append(cells)
     best = data["rows"][0]
     sec = (f'<h2 id="{cid}">{esc(title)}</h2>\n'
@@ -294,9 +394,14 @@ def _llm_teaser(meta, summ, pbs):
     is_saas = meta.get("source") == "saas_proxy"
     src = "SaaS · LiteLLM-Proxy" if is_saas else "lokal · DGX Spark / vLLM"
     prof_label = "Proxy-ID" if is_saas else "Profil / Quant"
+    profile = meta.get("profile", "")
     facts = [f'<span><b>Quelle</b>{esc(src)}</span>',
-             f'<span><b>{prof_label}</b><code>{esc(meta.get("profile", "—"))}</code></span>',
+             f'<span><b>{prof_label}</b><code>{esc(profile or "—")}</code></span>',
+             f'<span><b>Lizenz</b>{esc(model_license(profile, is_saas))}</span>',
              f'<span><b>Judge</b><code>{esc(meta.get("judge", "—"))}</code></span>']
+    url, lbl = model_repo(profile, is_saas)
+    if url:
+        facts.insert(3, f'<span><b>Repo</b><a href="{esc(url)}">{esc(lbl)}</a></span>')
     vllm = meta.get("vllm") or meta.get("vllm_tag")
     if vllm and not is_saas:
         facts.insert(1, f'<span><b>vLLM</b><code>{esc(vllm)}</code></span>')
@@ -357,7 +462,11 @@ def _guard_teaser(g):
     served = str(g.get("served_model", "")).rstrip("/").rsplit("/", 1)[-1]
     facts = [f'<span><b>Quelle</b>Guard · vLLM (DGX Spark)</span>',
              f'<span><b>Served</b><code>{esc(served)}</code></span>',
+             f'<span><b>Lizenz</b>{esc(model_license(served, False))}</span>',
              f'<span><b>Protokoll</b><code>{esc(g.get("protocol", "—"))}</code></span>']
+    url, lbl = model_repo(served, False)
+    if url:
+        facts.insert(3, f'<span><b>Repo</b><a href="{esc(url)}">{esc(lbl)}</a></span>')
     if g.get("threshold") is not None:
         facts.append(f'<span><b>Threshold</b>{esc(g["threshold"])}</span>')
     if g.get("reasoning_effort"):
@@ -419,38 +528,52 @@ def guard_detail_html(g, gprompts):
     return page_shell(f'{g.get("label", "")} — Guard-Detail', inner, subtitle=subtitle, back="index.html")
 
 
-def _landing(title, groups, subdir):
-    """Verzeichnisseite für docs/<subdir>/ — verhindert 404 auf /m/ bzw. /g/."""
+def _landing_page(title, sections):
+    """Verzeichnisseite (Tabelle je Gruppe) für docs/<subdir>/ — verhindert 404."""
     body = []
-    for gtitle, items in groups:
-        if not items:
+    for heading, hdr, rows in sections:
+        if not rows:
             continue
-        body.append(f'<h2>{esc(gtitle)}</h2><div class="modellist">'
-                    + "".join(f'<a href="{esc(href)}">{esc(label)}</a>' for label, href in items) + "</div>")
+        body.append(f'<h2>{esc(heading)}</h2>\n<div style="overflow-x:auto">{table(hdr, rows)}</div>')
     return page_shell(title, "\n".join(body), back="../index.html")
 
 
 def generate_details(runs, guards, prompts, gprompts):
     (DOCS / "m").mkdir(parents=True, exist_ok=True)
     (DOCS / "g").mkdir(parents=True, exist_ok=True)
-    m_groups = []
+    m_sections = []
     for kind, gtitle in (("local", "Lokale Modelle (DGX Spark)"), ("saas", "SaaS-Referenzkohorte")):
         data = runs.get(kind)
         if not data:
             continue
-        items = []
+        rows = []
         for row in data["rows"]:
             (DOCS / "m" / f"{row['stem']}.html").write_text(llm_detail_html(row, prompts), encoding="utf-8")
-            items.append((row["model"], f"{row['stem']}.html"))
-        m_groups.append((gtitle, items))
-    g_items = []
+            ov = row["overall"] or "—"
+            ov_html = f'<span class="ko">{esc(ov)}</span>' if ov == "K.O." else esc(ov)
+            url, _lbl = model_repo(row["profile"], row["is_saas"])
+            hf = f' <a href="{esc(url)}" title="Repo/Anbieter">↗</a>' if url else ""
+            rows.append([f'<a href="{esc(row["stem"])}.html">{esc(row["model"])}</a>{hf}',
+                         f'{ov_html} {esc(row["pass_rate"])}%',
+                         esc(model_license(row["profile"], row["is_saas"]))])
+        m_sections.append((gtitle, ["Modell", "Gesamt", "Lizenz"], rows))
+    g_rows, n_g = [], 0
     for g in guards:
-        if g.get("per_case"):
-            (DOCS / "g" / f"{g['slug']}.html").write_text(guard_detail_html(g, gprompts), encoding="utf-8")
-            g_items.append((g["label"], f"{g['slug']}.html"))
-    (DOCS / "m" / "index.html").write_text(_landing("LLM-Detailseiten", m_groups, "m"), encoding="utf-8")
-    (DOCS / "g" / "index.html").write_text(_landing("Guard-Detailseiten", [("Guards", g_items)], "g"), encoding="utf-8")
-    return sum(len(i) for _, i in m_groups), len(g_items)
+        if not g.get("per_case"):
+            continue
+        (DOCS / "g" / f"{g['slug']}.html").write_text(guard_detail_html(g, gprompts), encoding="utf-8")
+        n_g += 1
+        m = g["metrics"]
+        g_rows.append([f'<a href="{esc(g["slug"])}.html">{esc(g["label"])}</a>',
+                       num(m.get("f1")), num(m.get("recall")), num(m.get("fpr")), num(m.get("trap_fpr")),
+                       "✓" if not g["knockouts"] else '<span class="ko">K.O.</span>'])
+    (DOCS / "m" / "index.html").write_text(
+        _landing_page("LLM-Detailseiten", m_sections), encoding="utf-8")
+    (DOCS / "g" / "index.html").write_text(
+        _landing_page("Guard-Detailseiten",
+                      [("Guards", ["Guard", "F1", "Recall", "FPR", "Trap-FPR", "K.O."], g_rows)]),
+        encoding="utf-8")
+    return sum(len(s[2]) for s in m_sections), n_g
 
 
 def build_index(runs, guards):
@@ -477,6 +600,8 @@ def main():
     gprompts = load_guard_prompts()
     (DOCS / "index.html").write_text(build_index(runs, guards), encoding="utf-8")
     n_llm, n_guard = generate_details(runs, guards, prompts, gprompts)
+    if _lic_dirty[0]:
+        _LIC_CACHE_FILE.write_text(json.dumps(_lic_disk, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"✓ docs/index.html + {n_llm} LLM-Detail + {n_guard} Guard-Detail (+ Landing m/ g/)")
     return 0
 
