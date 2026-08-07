@@ -191,7 +191,32 @@ def load_guards():
             continue
         out.append({"label": d.get("label", j.stem), "metrics": d.get("metrics", {}),
                     "knockouts": d.get("knockouts", []), "per_case": d.get("per_case", []),
-                    "protocol": d.get("protocol", ""), "slug": slugify(d.get("label", j.stem))})
+                    "protocol": d.get("protocol", ""), "threshold": d.get("threshold"),
+                    "reasoning_effort": d.get("reasoning_effort", ""),
+                    "served_model": d.get("served_model", ""), "slug": slugify(d.get("label", j.stem))})
+    return out
+
+
+def load_guard_prompts():
+    """{id: {prompt, truth, harm}} aus testdata/guardrails/ für die Detailseiten."""
+    out = {}
+    for f in sorted((TESTDATA_DIR / "guardrails").glob("*.jsonl")):
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for ln in lines:
+            ln = ln.strip()
+            if not ln or ln.startswith("#"):
+                continue
+            try:
+                o = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            if o.get("id"):
+                out[o["id"]] = {"prompt": o.get("prompt", ""),
+                                "truth": (o.get("expected") or {}).get("value", ""),
+                                "harm": (o.get("metadata") or {}).get("harm_category", "")}
     return out
 
 
@@ -325,22 +350,72 @@ def llm_detail_html(row, prompts):
     return page_shell(f'{meta.get("model", row["stem"])} — LLM-Detail', "\n".join(parts), subtitle=subtitle, back="index.html")
 
 
-def guard_detail_html(g):
+def _guard_teaser(g):
+    """Gleicher Header wie LLM-Detail: Guard-Daten + Gesamt-Performance."""
     m = g.get("metrics", {})
-    hdr = ["Fall", "Subkat.", "Harm", "Trap", "Wahrheit", "Vorhersage", "Outcome", "Score", "ms"]
-    rows = []
+    conf = m.get("confusion", {})
+    served = str(g.get("served_model", "")).rstrip("/").rsplit("/", 1)[-1]
+    facts = [f'<span><b>Quelle</b>Guard · vLLM (DGX Spark)</span>',
+             f'<span><b>Served</b><code>{esc(served)}</code></span>',
+             f'<span><b>Protokoll</b><code>{esc(g.get("protocol", "—"))}</code></span>']
+    if g.get("threshold") is not None:
+        facts.append(f'<span><b>Threshold</b>{esc(g["threshold"])}</span>')
+    if g.get("reasoning_effort"):
+        facts.append(f'<span><b>Reasoning</b>{esc(g["reasoning_effort"])}</span>')
+    ov_cls, ov = ("fail", "K.O.") if g.get("knockouts") else ("pass", "OK")
+    confs = (f'TP {conf.get("tp", 0)} · TN {conf.get("tn", 0)} · '
+             f'<span class="ko">FP {conf.get("fp", 0)} · FN {conf.get("fn", 0)}</span>')
+    return (f'<div class="teaser"><div class="facts">{"".join(facts)}</div>'
+            f'<div class="perf"><span class="badge {ov_cls} big">{ov} · F1 {float(m.get("f1", 0) or 0):.3f}</span>'
+            f'<span class="pbmini">Acc {float(m.get("accuracy", 0) or 0):.3f} · Recall {float(m.get("recall", 0) or 0):.3f} · '
+            f'FPR {float(m.get("fpr", 0) or 0):.3f} · Trap-FPR {float(m.get("trap_fpr", 0) or 0):.3f}</span>'
+            f'<span class="pbmini">{confs}</span></div></div>')
+
+
+def _guard_text(c, gprompts):
+    """Eingabetext; unsafe maskiert (Harm-Kategorie + ~55 Zeichen), Rest Volltext."""
+    info = gprompts.get(c.get("id"), {})
+    text = info.get("prompt", "")
+    if (c.get("truth") or info.get("truth")) == "unsafe":
+        harm = c.get("harm_category") or info.get("harm") or "unsafe"
+        snip = text[:55].rstrip()
+        return f'[unsafe · {harm}] {snip}…' if snip else f'[unsafe · {harm}]'
+    return text
+
+
+def guard_detail_html(g, gprompts):
+    # Case-Overview (kompakt, alle Fälle)
+    ohdr = ["Fall", "Subkat.", "Trap", "Wahrheit", "Vorhersage", "Outcome", "Score", "ms"]
+    orows = []
     for c in g.get("per_case", []):
         oc = c.get("outcome", "")
         sc, lat = c.get("score"), c.get("latency_ms")
-        rows.append([esc(c.get("id", "")), esc(c.get("subcategory", "")), esc(c.get("harm_category", "")),
-                     "⚠" if c.get("trap") else "", esc(c.get("truth", "")), esc(c.get("prediction", "")),
-                     f'<span class="outcome-{esc(oc)}">{esc(oc)}</span>',
-                     f"{sc:.3f}" if isinstance(sc, (int, float)) else "—",
-                     f"{lat:.0f}" if isinstance(lat, (int, float)) else "—"])
-    subtitle = (f'Protokoll <code>{esc(g.get("protocol", ""))}</code> · F1 {num(m.get("f1"))} · '
-                f'Recall {num(m.get("recall"))} · FPR {num(m.get("fpr"))} · Trap-FPR {num(m.get("trap_fpr"))} · '
-                f'{len(g.get("per_case", []))} Fälle. <strong>Kein Judge</strong> — das Label ist die Wahrheit.')
-    inner = f'<div style="overflow-x:auto">{table(hdr, rows)}</div>'
+        orows.append([esc(c.get("id", "")), esc(c.get("subcategory", "")), "⚠" if c.get("trap") else "",
+                      esc(c.get("truth", "")), esc(c.get("prediction", "")),
+                      f'<span class="outcome-{esc(oc)}">{esc(oc)}</span>',
+                      f"{sc:.3f}" if isinstance(sc, (int, float)) else "—",
+                      f"{lat:.0f}" if isinstance(lat, (int, float)) else "—"])
+    # Fälle: Fehlklassifikationen (FP/FN) zuerst, dann korrekte
+    cases = sorted(g.get("per_case", []), key=lambda c: c.get("outcome", "") in ("TP", "TN"))
+    blocks = []
+    for c in cases:
+        oc = c.get("outcome", "")
+        cls = "pass" if oc in ("TP", "TN") else "fail"
+        badges = f'<span class="badge {cls}">{esc(oc)}</span>'
+        if c.get("trap"):
+            badges += ' <span class="badge warn">TRAP</span>'
+        sc = c.get("score")
+        sc_s = f' · {sc:.3f}' if isinstance(sc, (int, float)) else ""
+        blocks.append(
+            f'<div class="case {cls}"><div class="hd">'
+            f'<span class="cid">{esc(c.get("id", ""))} · {esc(c.get("subcategory", ""))}</span>{badges}</div>'
+            f'<div class="qa"><span class="lbl">Eingabe</span><div class="txt">{esc(_guard_text(c, gprompts))}</div></div>'
+            f'<div class="qa"><span class="lbl">Wahrheit → Vorhersage</span>'
+            f'<div class="txt">{esc(c.get("truth", ""))} → <strong>{esc(c.get("prediction", ""))}</strong>{sc_s}</div></div></div>')
+    inner = (f'{_guard_teaser(g)}\n<h2>Überblick</h2>\n<div style="overflow-x:auto">{table(ohdr, orows)}</div>\n'
+             f'<h2>Fälle</h2>\n<p class="note">Fehlklassifikationen (FP/FN) zuerst · unsafe-Eingaben maskiert.</p>\n'
+             + "\n".join(blocks))
+    subtitle = f'Kein Judge — das Label ist die Wahrheit · {len(cases)} Fälle.'
     return page_shell(f'{g.get("label", "")} — Guard-Detail', inner, subtitle=subtitle, back="index.html")
 
 
@@ -355,7 +430,7 @@ def _landing(title, groups, subdir):
     return page_shell(title, "\n".join(body), back="../index.html")
 
 
-def generate_details(runs, guards, prompts):
+def generate_details(runs, guards, prompts, gprompts):
     (DOCS / "m").mkdir(parents=True, exist_ok=True)
     (DOCS / "g").mkdir(parents=True, exist_ok=True)
     m_groups = []
@@ -371,7 +446,7 @@ def generate_details(runs, guards, prompts):
     g_items = []
     for g in guards:
         if g.get("per_case"):
-            (DOCS / "g" / f"{g['slug']}.html").write_text(guard_detail_html(g), encoding="utf-8")
+            (DOCS / "g" / f"{g['slug']}.html").write_text(guard_detail_html(g, gprompts), encoding="utf-8")
             g_items.append((g["label"], f"{g['slug']}.html"))
     (DOCS / "m" / "index.html").write_text(_landing("LLM-Detailseiten", m_groups, "m"), encoding="utf-8")
     (DOCS / "g" / "index.html").write_text(_landing("Guard-Detailseiten", [("Guards", g_items)], "g"), encoding="utf-8")
@@ -399,8 +474,9 @@ def main():
     runs = load_llm_runs()
     guards = load_guards()
     prompts = load_testdata_prompts()
+    gprompts = load_guard_prompts()
     (DOCS / "index.html").write_text(build_index(runs, guards), encoding="utf-8")
-    n_llm, n_guard = generate_details(runs, guards, prompts)
+    n_llm, n_guard = generate_details(runs, guards, prompts, gprompts)
     print(f"✓ docs/index.html + {n_llm} LLM-Detail + {n_guard} Guard-Detail (+ Landing m/ g/)")
     return 0
 
