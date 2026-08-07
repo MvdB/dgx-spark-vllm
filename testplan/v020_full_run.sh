@@ -3,7 +3,7 @@
 # Detached (nohup/setsid) — survives SSH disconnect.
 
 set -u
-cd /home/mvdb/dgx-spark-vllm/testplan
+cd $HOME/dgx-spark/dgx-spark-vllm/testplan
 source .venv/bin/activate
 
 TS="$(date +%Y%m%d_%H%M)"

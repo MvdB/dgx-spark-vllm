@@ -8,7 +8,7 @@
 # Usage (real): setsid nohup ./diffusiongemma_run.sh > /dev/null 2>&1 < /dev/null & disown
 
 set -u
-cd /home/mvdb/dgx-spark-vllm/testplan
+cd $HOME/dgx-spark/dgx-spark-vllm/testplan
 source .venv/bin/activate
 export TARGET_HOST=localhost
 
@@ -16,11 +16,11 @@ TS="$(date +%Y%m%d_%H%M%S)"
 LOG_DIR="logs"; mkdir -p "$LOG_DIR"
 LOG="${LOG_DIR}/diffusiongemma_${TS}.log"
 
-RUNNER=/home/mvdb/dgx-spark-vllm/runner/vllm_spark.sh
+RUNNER=$HOME/dgx-spark/dgx-spark-vllm/runner/vllm_spark.sh
 DIR="$HOME/hf_models/google--diffusiongemma-26B-A4B-it"
 
 bench() {
-  /home/mvdb/dgx-spark-vllm/testplan/.venv/bin/python - <<'PY'
+  $HOME/dgx-spark/dgx-spark-vllm/testplan/.venv/bin/python - <<'PY'
 import time, sys
 from openai import OpenAI
 c = OpenAI(base_url='http://127.0.0.1:8000/v1', api_key='x', timeout=300)

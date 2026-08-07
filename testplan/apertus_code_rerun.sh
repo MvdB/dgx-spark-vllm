@@ -7,7 +7,7 @@
 # Usage (real): setsid nohup ./apertus_code_rerun.sh > /dev/null 2>&1 < /dev/null & disown
 
 set -u
-cd /home/mvdb/dgx-spark-vllm/testplan
+cd $HOME/dgx-spark/dgx-spark-vllm/testplan
 source .venv/bin/activate
 export TARGET_HOST=localhost
 

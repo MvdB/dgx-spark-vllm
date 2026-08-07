@@ -5,10 +5,10 @@
 set -u
 
 IMAGE='vllm/vllm-openai:v0.20.0'
-HF_DIR='/home/mvdb/hf_models'
+HF_DIR='$HOME/hf_models'
 PORT=8000
 CONTAINER='v020-smoke'
-LOG_DIR='/home/mvdb/dgx-spark-vllm/testplan/logs'
+LOG_DIR='$HOME/dgx-spark/dgx-spark-vllm/testplan/logs'
 TS="$(date +%Y%m%d_%H%M)"
 MASTER_LOG="${LOG_DIR}/v020_smoke_${TS}.log"
 RESULT_TABLE="${LOG_DIR}/v020_smoke_${TS}_results.txt"

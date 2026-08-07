@@ -21,7 +21,7 @@ python3 test_models.py qwen3.5-9b   # single model by pattern
 ## Benchmark Results
 
 **Hardware:** DGX Spark · GB10 · 128 GB unified memory  
-**vLLM image:** `vllm/vllm-openai:v0.17.1`  
+**vLLM image:** `vllm/vllm-openai:26.03.post1-py3`  
 **Last run:** 2026-03-16 23:15 UTC (15/15 models tested)
 
 | Model | Status | Startup | Warmup | TTFT | Throughput | Out tokens | Bench total |

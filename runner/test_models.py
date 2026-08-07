@@ -28,7 +28,7 @@ from pathlib import Path
 # ── Paths ──────────────────────────────────────────────────────────────────
 REPO_DIR      = Path(__file__).parent.parent
 RUNNER_DIR    = Path(__file__).parent
-VLLM_SCRIPT   = Path.home() / "vllm_spark.sh"
+VLLM_SCRIPT   = Path(os.environ.get("VLLM_SCRIPT", RUNNER_DIR / "vllm_spark.sh"))
 HF_MODELS_DIR = Path(os.environ.get("HF_MODELS_DIR", Path.home() / "hf_models"))
 STATUS_FILE   = RUNNER_DIR / "README.md"
 
@@ -36,7 +36,7 @@ STATUS_FILE   = RUNNER_DIR / "README.md"
 HOST_PORT       = int(os.environ.get("HOST_PORT",        "8000"))
 BASE_URL        = f"http://127.0.0.1:{HOST_PORT}"
 CONTAINER       = os.environ.get("CONTAINER_NAME",       "vllm-server")
-VLLM_TAG        = os.environ.get("DEFAULT_VLLM_TAG",     "v0.19.0")
+VLLM_TAG        = os.environ.get("DEFAULT_VLLM_TAG",     "26.03.post1-py3")
 STARTUP_TIMEOUT = int(os.environ.get("STARTUP_TIMEOUT",  "600"))
 POLL_INTERVAL   = 10
 QUERY_TIMEOUT   = 180

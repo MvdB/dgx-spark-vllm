@@ -82,7 +82,7 @@ Key profile fields: `PROFILE_DOCKER_IMAGE` (per-model custom image override), `P
 
 Iterates compatible models, calls `vllm_spark.sh --skip-pull` per model, polls `/v1/models`, runs warmup + correctness queries + streaming benchmark (TTFT, tok/s), then writes `runner/README.md` and git-pushes after each model.
 
-`VLLM_SCRIPT` is read from `~/vllm_spark.sh` (not the repo path) — deploy the script to home if running tests from outside the repo.
+`VLLM_SCRIPT` defaults to the repo-local `runner/vllm_spark.sh`; override with the `VLLM_SCRIPT` env var to point at a different copy.
 
 ### Model directory naming
 

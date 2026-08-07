@@ -2,7 +2,7 @@
 # retest2_medium.sh — Verifikation der Profil-Fixes (Nemotron nemotron_v3,
 # Omni Mamba/max_num_batched_tokens) + GLM-Diagnose (chat vs raw).
 set -u
-cd /home/mvdb/dgx-spark-vllm
+cd $HOME/dgx-spark/dgx-spark-vllm
 VLLM=runner/vllm_spark.sh
 TS="$(date +%Y%m%d_%H%M%S)"
 LOG="testplan/logs/retest2_medium_${TS}.log"

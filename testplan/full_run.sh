@@ -5,7 +5,7 @@
 # Usage:  setsid nohup ./full_run.sh > logs/full_run_<ts>.log 2>&1 < /dev/null & disown
 
 set -u
-cd /home/mvdb/dgx-spark-vllm/testplan
+cd $HOME/dgx-spark/dgx-spark-vllm/testplan
 source .venv/bin/activate
 
 TS="$(date +%Y%m%d_%H%M)"

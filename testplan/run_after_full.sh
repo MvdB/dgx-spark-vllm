@@ -9,7 +9,7 @@ set -u
 WAIT_PID="${1:?usage: run_after_full.sh <waitpid> <model-name>}"
 MODEL="${2:?usage: run_after_full.sh <waitpid> <model-name>}"
 
-cd /home/mvdb/dgx-spark-vllm/testplan
+cd $HOME/dgx-spark/dgx-spark-vllm/testplan
 source .venv/bin/activate
 
 TS="$(date +%Y%m%d_%H%M)"

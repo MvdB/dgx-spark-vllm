@@ -7,8 +7,8 @@
 #          > logs/smoke_retest_eager_off_<ts>.log 2>&1 < /dev/null & disown
 
 set -u
-RUNNER=/home/mvdb/dgx-spark-vllm/runner
-TESTPLAN=/home/mvdb/dgx-spark-vllm/testplan
+RUNNER=$HOME/dgx-spark/dgx-spark-vllm/runner
+TESTPLAN=$HOME/dgx-spark/dgx-spark-vllm/testplan
 cd "$TESTPLAN"
 source .venv/bin/activate
 

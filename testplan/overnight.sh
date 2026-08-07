@@ -3,7 +3,7 @@
 # Waits for run11, consolidates, runs Gemma-4-31B-IT-NVFP4, consolidates again.
 
 set -euo pipefail
-cd /home/mvdb/dgx-spark-vllm/testplan
+cd $HOME/dgx-spark/dgx-spark-vllm/testplan
 source .venv/bin/activate
 
 LOG=logs/overnight.log

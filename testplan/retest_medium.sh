@@ -2,7 +2,7 @@
 # retest_medium.sh — gezielter Nachtest: Nemotron-30B (mehr Tokens, Reasoner?),
 # Omni-FP8 (Todesursache), GLM-4.7-Flash (neu fertig). Fail-safe/detached.
 set -u
-cd /home/mvdb/dgx-spark-vllm
+cd $HOME/dgx-spark/dgx-spark-vllm
 VLLM=runner/vllm_spark.sh
 TS="$(date +%Y%m%d_%H%M%S)"
 LOG="testplan/logs/retest_medium_${TS}.log"
