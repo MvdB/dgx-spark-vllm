@@ -45,7 +45,7 @@ Optionen:
 Umgebungsvariablen (Defaults in Klammern):
   HF_MODELS_DIR              ($HOME/hf_models)   Lokales HF-Modell-Verzeichnis.
   IMAGE_REPO                 (vllm/vllm-openai)
-  DEFAULT_VLLM_TAG           (26.03.post1-py3)
+  DEFAULT_VLLM_TAG           (v0.26.0)
   LATEST_VLLM_VERSION        (leer -> DEFAULT_VLLM_TAG wird genutzt)
   CONTAINER_NAME             (vllm-server)
   HOST_PORT                  (8000)
@@ -71,7 +71,7 @@ PROFILER_SCRIPT="$(dirname "$(realpath "$0")")/vllm_spark_profiler.py"
 # Primär: NVIDIA DGX Spark-optimiertes vLLM-Image (sm_120-CUTLASS-Patches).
 # Fallback auf vllm/vllm-openai für Modelle die neuere Architekturen benötigen.
 IMAGE_REPO="${IMAGE_REPO:-nvcr.io/nvidia/vllm}"
-DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-26.03.post1-py3}"
+DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-v0.26.0}"
 
 CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
 HOST_PORT="${HOST_PORT:-8000}"

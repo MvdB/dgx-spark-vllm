@@ -109,7 +109,7 @@ Key parameters tuned per model (targeting 85–92 % of 128 GB, 2–4 parallel us
 |---|---|---|
 | `HF_MODELS_DIR` | `~/hf_models` | Local model store |
 | `IMAGE_REPO` | `vllm/vllm-openai` | Docker image repository |
-| `DEFAULT_VLLM_TAG` | `26.03.post1-py3` | Image tag (fallback; curated profiles pin their own image) |
+| `DEFAULT_VLLM_TAG` | `v0.26.0` | Image tag (fallback; curated profiles pin their own image) |
 | `CONTAINER_NAME` | `vllm-server` | Container name |
 | `HOST_PORT` | `8000` | Port exposed on the host |
 | `VLLM_EXTRA_ARGS` | _(empty)_ | Additional `vllm serve` flags |
