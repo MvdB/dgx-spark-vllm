@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SOUTH.BYTE — LLM-Detailseiten</title>
+<style>
+ :root{--bg:#060C0A;--bg-raised:#0A1410;--bg-card:#0E1A14;--border:#162A1E;--border-hi:#1A5C38;
+   --green:#00E676;--green-dim:#00994A;--amber:#F59E0B;--text:#D4EDE0;--text-muted:#5E8A72;--text-dim:#2E5040;
+   --ko:#FF5A5A;--mono:'Courier New',Consolas,'Cascadia Code','SF Mono',Menlo,monospace;
+   --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.7}
+ .grid-bg{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
+   background-image:linear-gradient(rgba(0,230,118,.15) 1px,transparent 1px),
+     linear-gradient(90deg,rgba(0,230,118,.15) 1px,transparent 1px);background-size:80px 80px}
+ .wrap{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:2.5rem 1.25rem}
+ .wordmark{font-family:var(--mono);font-weight:700;font-size:1.5rem;letter-spacing:1.4px;color:var(--text);text-decoration:none}
+ .wordmark .dot{color:var(--green)}
+ .tagline{font-family:var(--mono);font-size:.7rem;letter-spacing:.25em;text-transform:uppercase;color:var(--text-muted);margin-top:.3rem}
+ .back{font-family:var(--mono);font-size:.8rem;display:inline-block;margin:1rem 0 .3rem}
+ h1{font-family:var(--mono);font-size:1.9rem;margin:1.2rem 0 .3rem;color:var(--text)}
+ .lede{color:var(--text-muted);margin:0 0 1.5rem;max-width:62ch}
+ .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.5rem 0}
+ .card{border:1px solid var(--border);border-radius:10px;padding:1rem;background:var(--bg-card)}
+ .card h3{margin:0 0 .5rem;font-family:var(--mono);font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em}
+ .card .big{font-size:1.8rem;font-weight:700;color:var(--text)} .card .sub{color:var(--text-muted);font-size:.85rem}
+ .card a{text-decoration:none;color:inherit} .card a:hover .big{color:var(--green)}
+ h2{font-family:var(--mono);text-transform:uppercase;letter-spacing:.15em;color:var(--green);font-size:1.05rem;
+   margin-top:2.4rem;padding-top:.8rem;border-top:1px solid var(--border-hi)}
+ table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.9rem}
+ th,td{border:1px solid var(--border);padding:.45rem .6rem;text-align:center}
+ th{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);background:var(--bg-raised)}
+ th:first-child,td:first-child{text-align:left} tbody tr:hover{background:var(--bg-raised)}
+ code{font-family:var(--mono);color:var(--green);background:var(--bg-card);padding:.05em .35em;border-radius:4px}
+ a{color:var(--green)} a:hover{color:var(--green-dim)} strong{color:var(--text)}
+ .ko{color:var(--ko);font-weight:600} .empty,.note{color:var(--text-muted);font-size:.9rem}
+ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:.82rem}
+ footer .wm{font-family:var(--mono);font-weight:700;letter-spacing:1px;color:var(--text)} footer .wm .dot{color:var(--green)}
+ .case{border:1px solid var(--border);border-left-width:5px;border-radius:8px;padding:.7rem 1rem;margin:.7rem 0;background:var(--bg-card)}
+ .case.pass{border-left-color:var(--green)} .case.warn{border-left-color:var(--amber)}
+ .case.fail,.case.knockout{border-left-color:var(--ko)} .case.error{border-left-color:var(--text-dim)}
+ .case .hd{display:flex;justify-content:space-between;gap:.6rem;align-items:baseline;flex-wrap:wrap}
+ .case .cid{font-family:var(--mono);font-size:.8rem;color:var(--text-muted)}
+ .badge{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.1em .5em;border-radius:4px;border:1px solid var(--border-hi)}
+ .badge.pass{color:var(--green)} .badge.warn{color:var(--amber)} .badge.fail,.badge.knockout{color:var(--ko)} .badge.error{color:var(--text-dim)}
+ .qa{margin:.45rem 0} .qa .lbl{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:.15rem}
+ .qa .txt{white-space:pre-wrap;word-break:break-word}
+ .resp{background:var(--bg-raised);border-left:3px solid var(--border-hi);padding:.45rem .65rem;border-radius:3px}
+ .judge{background:var(--bg-raised);border-left:3px solid var(--green);padding:.45rem .65rem;border-radius:3px}
+ details{margin:.3rem 0} summary{cursor:pointer;color:var(--text-muted);font-family:var(--mono);font-size:.76rem}
+ .outcome-TP,.outcome-TN{color:var(--green);font-weight:600} .outcome-FP,.outcome-FN{color:var(--ko);font-weight:600}
+ .teaser{border:1px solid var(--border-hi);border-radius:8px;padding:.85rem 1.1rem;margin:.3rem 0 1.6rem;background:var(--bg-card)}
+ .teaser .facts{display:flex;flex-wrap:wrap;gap:.35rem 1.4rem;font-size:.86rem;margin-bottom:.6rem}
+ .teaser .facts b{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-right:.4rem}
+ .teaser .perf{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline}
+ .teaser .big{font-family:var(--mono);font-size:1.1rem} .teaser .pbmini{color:var(--text-muted);font-size:.85rem;font-family:var(--mono)}
+ .modellist{columns:2;gap:1.5rem} .modellist a{display:block;padding:.15rem 0} @media(max-width:640px){.modellist{columns:1}}
+</style></head><body><div class="grid-bg"></div><div class="wrap">
+<header><a class="wordmark" href="../index.html">SOUTH<span class="dot">.</span>BYTE</a><div class="tagline">AI Governance &amp; IT-Beratung</div></header>
+<a class="back" href="../index.html">← zurück</a>
+<h1>LLM-Detailseiten</h1>
+
+<h2>Lokale Modelle (DGX Spark)</h2><div class="modellist"><a href="Gemma-4-31B.html">Gemma-4-31B</a><a href="Qwen3.5-122B-A10B.html">Qwen3.5-122B-A10B</a><a href="Gemma-4-31B-IT-NVFP4.html">Gemma-4-31B-IT-NVFP4</a><a href="Nemotron-3-Super.html">Nemotron-3-Super</a><a href="Gemma-4-26B-A4B.html">Gemma-4-26B-A4B</a><a href="gpt-oss-120b.html">gpt-oss-120b</a><a href="Qwen3.5-27B.html">Qwen3.5-27B</a><a href="Qwen3.5-35B-A3B.html">Qwen3.5-35B-A3B</a><a href="Qwen3.6-27B-FP8.html">Qwen3.6-27B-FP8</a><a href="Gemma-4-E4B.html">Gemma-4-E4B</a><a href="Qwen3.5-27B-FP8.html">Qwen3.5-27B-FP8</a><a href="Qwen3.6-35B-A3B-FP8.html">Qwen3.6-35B-A3B-FP8</a><a href="Mistral-Small-4.html">Mistral-Small-4</a><a href="Nemotron-3-Nano-30B.html">Nemotron-3-Nano-30B</a><a href="Gemma-4-E2B.html">Gemma-4-E2B</a><a href="Nemotron-3-Nano-Omni-30B.html">Nemotron-3-Nano-Omni-30B</a><a href="Qwen3.5-9B.html">Qwen3.5-9B</a><a href="gpt-oss-20b.html">gpt-oss-20b</a><a href="Devstral-Small-2-24B.html">Devstral-Small-2-24B</a><a href="Granite-4.1-30B.html">Granite-4.1-30B</a><a href="Ministral-3-8B-Instruct.html">Ministral-3-8B-Instruct</a><a href="Mistral-Small-3.2-24B.html">Mistral-Small-3.2-24B</a><a href="Ministral-3-14B-Instruct.html">Ministral-3-14B-Instruct</a><a href="Mistral-Small-3.2-24B-NVFP4.html">Mistral-Small-3.2-24B-NVFP4</a><a href="Ministral-3-14B-Reasoning.html">Ministral-3-14B-Reasoning</a><a href="Qwen3.5-4B.html">Qwen3.5-4B</a><a href="Ministral-3-8B-Reasoning.html">Ministral-3-8B-Reasoning</a><a href="Mistral-Medium-3.5-128B-NVFP4.html">Mistral-Medium-3.5-128B-NVFP4</a><a href="Ministral-3-3B-Reasoning.html">Ministral-3-3B-Reasoning</a><a href="Qwen3.5-2B.html">Qwen3.5-2B</a><a href="Qwen3.5-0.8B.html">Qwen3.5-0.8B</a><a href="LFM2.5-VL-450M.html">LFM2.5-VL-450M</a></div>
+<h2>SaaS-Referenzkohorte</h2><div class="modellist"><a href="Claude-Sonnet-5.html">Claude-Sonnet-5</a><a href="Claude-Fable-5.html">Claude-Fable-5</a><a href="GPT-5.6-luna.html">GPT-5.6-luna</a><a href="Claude-Opus-5.html">Claude-Opus-5</a><a href="Claude-Haiku-4.5.html">Claude-Haiku-4.5</a></div>
+<footer><span class="wm">SOUTH<span class="dot">.</span>BYTE</span> — Michael van den Berg · Cross-Modality-Hub: <a href="https://results.southbyte.de/">results.southbyte.de</a> · <a href="https://southbyte.de">southbyte.de</a></footer>
+</div></body></html>
