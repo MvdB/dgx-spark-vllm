@@ -68,9 +68,11 @@ USAGE
 HF_MODELS_DIR="${HF_MODELS_DIR:-${HOME}/hf_models}"
 PROFILER_SCRIPT="$(dirname "$(realpath "$0")")/vllm_spark_profiler.py"
 
-# Primär: NVIDIA DGX Spark-optimiertes vLLM-Image (sm_120-CUTLASS-Patches).
-# Fallback auf vllm/vllm-openai für Modelle die neuere Architekturen benötigen.
-IMAGE_REPO="${IMAGE_REPO:-nvcr.io/nvidia/vllm}"
+# Reguläres Upstream-vLLM-Image (arm64/GB10). Modelle mit Sonderkernel-Bedarf
+# (sm_120 NVFP4 etc.) pinnen ihr eigenes Image via PROFILE_DOCKER_IMAGE — oder man
+# setzt IMAGE_REPO=nvcr.io/nvidia/vllm für den NVIDIA-Fork (CalVer-Tags wie 26.03-py3;
+# dann auch DEFAULT_VLLM_TAG passend setzen, nicht v0.26.0).
+IMAGE_REPO="${IMAGE_REPO:-vllm/vllm-openai}"
 DEFAULT_VLLM_TAG="${DEFAULT_VLLM_TAG:-v0.26.0}"
 
 CONTAINER_NAME="${CONTAINER_NAME:-vllm-server}"
