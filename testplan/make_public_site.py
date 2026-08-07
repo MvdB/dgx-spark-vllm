@@ -390,7 +390,7 @@ def build_index(runs, guards):
     lede = ("LLM- und Guardrail-Evaluationen auf dem NVIDIA DGX Spark (GB10). Modell- und Guard-Namen "
             "sind anklickbar — Fall für Fall mit Prompt, Antwort und Judge. Rohdaten bleiben lokal; "
             "Sicherheits-Playbook (04) wird nicht publiziert.")
-    return page_shell("LLM- &amp; Guardrail-Evaluationen", inner, subtitle=lede, back="")
+    return page_shell("LLM- & Guardrail-Evaluationen", inner, subtitle=lede, back="")
 
 
 def main():
