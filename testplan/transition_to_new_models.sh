@@ -10,7 +10,7 @@ set -u
 FULL_RUN_PID="${1:?usage: transition_to_new_models.sh <full_run_pid> <full_run_log>}"
 WATCH_LOG="${2:?usage: transition_to_new_models.sh <full_run_pid> <full_run_log>}"
 
-cd $HOME/dgx-spark/dgx-spark-vllm/testplan
+cd $HOME/southbyte/southbyte-vllm/testplan
 source .venv/bin/activate
 
 TS="$(date +%Y%m%d_%H%M)"

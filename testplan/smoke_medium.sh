@@ -5,7 +5,7 @@
 # Detached / fail-safe.
 
 set -u
-cd $HOME/dgx-spark/dgx-spark-vllm
+cd $HOME/southbyte/southbyte-vllm
 VLLM=runner/vllm_spark.sh
 
 TS="$(date +%Y%m%d_%H%M%S)"

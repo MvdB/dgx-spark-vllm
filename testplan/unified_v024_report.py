@@ -23,12 +23,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
-PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
+# Kuratierte Profile leben jetzt in southbyte-spark-profiles (hardwarespezifisch).
+PROFILES_DIR = Path(
+    os.environ.get("SPARK_PROFILES_DIR", Path.home() / "southbyte" / "southbyte-spark-profiles")
+) / "vllm" / "profiles"
 CONFIG_YAML = Path(__file__).resolve().parent / "config" / "testplan.yaml"
 
 # Evaluator-Defaults (evaluators/base.py query_target) — für die Parameter-Blöcke.

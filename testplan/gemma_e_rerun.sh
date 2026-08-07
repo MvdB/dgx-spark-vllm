@@ -8,7 +8,7 @@
 # Usage (real): setsid nohup ./gemma_e_rerun.sh > /dev/null 2>&1 < /dev/null & disown
 
 set -u
-cd $HOME/dgx-spark/dgx-spark-vllm/testplan
+cd $HOME/southbyte/southbyte-vllm/testplan
 source .venv/bin/activate
 export TARGET_HOST=localhost
 

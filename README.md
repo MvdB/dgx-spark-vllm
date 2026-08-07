@@ -1,33 +1,31 @@
-# dgx-spark-vllm
+# southbyte-vllm
 
 Tooling for running [vLLM](https://github.com/vllm-project/vllm) on the
 **NVIDIA DGX Spark** (GB10 SoC, 128 GB unified memory), plus an automated
 LLM evaluation framework.
 
 Shared infrastructure (HuggingFace collection mirror, common tooling) lives in
-[dgx-spark-core](https://github.com/MvdB/dgx-spark-core).
+[southbyte-core](https://github.com/MvdB/southbyte-core).
 
 ## Repository structure
 
 ```
-dgx-spark-vllm/
+southbyte-vllm/
 ├── runner/                    # vLLM container runner
 │   ├── vllm_spark.sh          #   interactive model picker + server start
 │   └── vllm_spark_profiler.py #   auto-generates per-model vLLM profiles
-├── profiles/                  # Curated vllm_profile.conf for known-good models
-│   ├── mistralai--Mistral-Small-4-119B-2603-NVFP4/
-│   ├── nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4/
-│   └── ...                    #   one subdirectory per model
 ├── testplan/                  # Automated LLM evaluation framework
 │   ├── orchestrator.py        #   end-to-end test runner
 │   ├── dashboard.py           #   cross-model comparison dashboard
 │   ├── config/testplan.yaml   #   central config (models, thresholds, playbooks)
 │   ├── evaluators/            #   quality, bias, security, code, performance, guard
 │   ├── playbooks/             #   8 test playbooks with judge prompts
-│   └── testdata/              #   JSONL test cases (76 across 7 categories)
-└── custom/                    # Custom Docker images for models needing special kernels
-    └── Dockerfile.mistral-small4  # avarok/dgx-vllm-nvfp4-kernel base + mistral_common
+    └── testdata/              #   JSONL test cases (76 across 7 categories)
 ```
+
+> The curated per-model `vllm_profile.conf` files and the `custom/` sm_120-kernel
+> Dockerfiles now live in the sibling repo
+> [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles).
 
 ---
 
@@ -38,7 +36,7 @@ dgx-spark-vllm/
 - Docker with GPU support (`--gpus all`)
 - `python3` in PATH
 - Local model directory (default `~/hf_models/`, populated by
-  [dgx-spark-core](https://github.com/MvdB/dgx-spark-core)'s `hf-sync`)
+  [southbyte-sync](https://github.com/MvdB/southbyte-sync))
 
 ### Quickstart
 
@@ -79,8 +77,10 @@ The file is human-editable; run `--regen-profile` to reset to auto-calculated va
 python3 vllm_spark_profiler.py ~/hf_models/mistralai--Ministral-3-8B-Instruct-2512 --force
 ```
 
-Curated profiles for all tested models are in [`profiles/`](profiles/README.md) —
-copy the relevant subdirectory to `~/hf_models/<model>/` to skip auto-generation.
+Curated profiles for all tested models are in
+[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles)
+(`vllm/profiles/`) — copy the relevant subdirectory to `~/hf_models/<model>/`
+to skip auto-generation.
 
 Key parameters tuned per model (targeting 85–92 % of 128 GB, 2–4 parallel users):
 
@@ -124,7 +124,9 @@ DEFAULT_VLLM_TAG=v0.19.0 ./vllm_spark.sh --model qwen3.5-9b
 ### Custom Docker images
 
 Some models require a specialised image due to missing sm_120 kernel support in
-the standard `vllm/vllm-openai` releases.  Custom Dockerfiles live in [`custom/`](custom/).
+the standard `vllm/vllm-openai` releases.  Custom Dockerfiles live in
+[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles)
+under `vllm/custom/`.
 
 | Model | Image | Reason |
 |---|---|---|
@@ -133,7 +135,8 @@ the standard `vllm/vllm-openai` releases.  Custom Dockerfiles live in [`custom/`
 Build before first use:
 
 ```bash
-docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
+cd ~/southbyte/southbyte-spark-profiles/vllm/custom
+docker build -t spark-mistral-small4:v1 -f Dockerfile.mistral-small4 .
 ```
 
 The `PROFILE_DOCKER_IMAGE` field in `vllm_profile.conf` tells `vllm_spark.sh`
@@ -142,8 +145,9 @@ which image to use for a given model.
 ### Tested models
 
 See the [runner README](runner/README.md) for benchmark results and
-[`profiles/`](profiles/) for the authoritative, continuously updated list of
-validated models (one curated profile per model). Early snapshot as of
+[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) for
+the authoritative, continuously updated list of validated models (one curated
+profile per model). Early snapshot as of
 2026-03-21:
 
 | Model | Notes |
@@ -222,7 +226,8 @@ Reports are stored locally only and are never committed to the repository
 
 All models, thresholds, and playbooks are defined in
 [`testplan/config/testplan.yaml`](testplan/config/testplan.yaml).
-Model profiles reference directories under `profiles/` in this repo.
+Model `profile` names reference directories under `vllm/profiles/` in
+[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles).
 
 K.O. criteria (immediate disqualification): hallucination rate > 5%, any PII
 leakage, critical SAST findings, statistically significant bias, or successful
@@ -232,8 +237,8 @@ prompt injection.
 
 ## HuggingFace collection sync
 
-The collection mirror (`hf-sync`, formerly `repo-sync/` in this repo) moved to
-[dgx-spark-core](https://github.com/MvdB/dgx-spark-core). It keeps a named
+The collection mirror (`hf-sync`, formerly `repo-sync/` in this repo) is the
+standalone [southbyte-sync](https://github.com/MvdB/southbyte-sync). It keeps a named
 HuggingFace collection mirrored to `~/hf_models/` with commit-SHA-based update
 detection; the `<owner>--<model-name>` directory naming used throughout this
 repo is defined there.

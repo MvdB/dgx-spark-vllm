@@ -9,7 +9,7 @@
 # Usage (real):     setsid nohup ./apertus_run.sh > /dev/null 2>&1 < /dev/null & disown
 
 set -u
-cd $HOME/dgx-spark/dgx-spark-vllm/testplan
+cd $HOME/southbyte/southbyte-vllm/testplan
 source .venv/bin/activate
 
 # Lauf auf gb10-worker2 (10.0.0.8). gb10-desktop löst hier nicht auf —

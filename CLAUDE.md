@@ -9,7 +9,7 @@ Tooling for running vLLM on the **NVIDIA DGX Spark** (GB10 SoC, sm_120, 128 GB u
 1. **`runner/`** – Bash + Python scripts that start a vLLM Docker container for any local model, generating and loading per-model parameter profiles.
 2. **`testplan/`** – Automated LLM evaluation framework. Two-Spark setup: Spark A runs a static judge (Magistral-Small-2509), Spark B rotates target models. 8 playbooks (quality, German, bias, security, code, performance, HSF, guardrails). Generates per-model reports + cross-model dashboard. The guardrails playbook (08) is different: the guard model *is* the classifier scored against labeled data, so there is **no judge** — see `testplan/guards/README.md`.
 
-The HuggingFace collection mirror (`hf-sync`, formerly `repo-sync/` here) lives in the sibling repo [dgx-spark-core](https://github.com/MvdB/dgx-spark-core); it populates `~/hf_models/` and defines the `<owner>--<model-name>` directory naming.
+The HuggingFace collection mirror (`hf-sync`, formerly `repo-sync/` here) is the standalone repo [southbyte-sync](https://github.com/MvdB/southbyte-sync); it populates `~/hf_models/` (which is itself a clone of that repo) and defines the `<owner>--<model-name>` directory naming. Spark-tuned per-model profiles + custom kernel Dockerfiles live in [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles).
 
 ## Common commands
 
@@ -36,7 +36,7 @@ python3 runner/test_models.py
 python3 runner/test_models.py qwen3.5-9b
 
 # Build custom Docker image for Mistral-Small-4
-docker build -t spark-mistral-small4:v1 -f custom/Dockerfile.mistral-small4 .
+(cd ~/southbyte/southbyte-spark-profiles/vllm/custom && docker build -t spark-mistral-small4:v1 -f Dockerfile.mistral-small4 .)
 
 # --- testplan ---
 # Dry run (show config, don't execute)
@@ -86,19 +86,19 @@ Iterates compatible models, calls `vllm_spark.sh --skip-pull` per model, polls `
 
 ### Model directory naming
 
-HuggingFace model IDs use `--` instead of `/`: `mistralai/Mistral-7B-v0.1` → `mistralai--Mistral-7B-v0.1`. The profiler and dgx-spark-core's hf-sync both follow this convention.
+HuggingFace model IDs use `--` instead of `/`: `mistralai/Mistral-7B-v0.1` → `mistralai--Mistral-7B-v0.1`. The profiler and southbyte-sync both follow this convention.
 
 ### Per-model custom Docker images
 
-Some models need kernels not in `vllm/vllm-openai` (especially sm_120 NVFP4). Custom Dockerfiles live in `custom/`. The profile's `PROFILE_DOCKER_IMAGE` field points to the locally-built tag. Must be built before first use.
+Some models need kernels not in `vllm/vllm-openai` (especially sm_120 NVFP4). Custom Dockerfiles live in [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) under `vllm/custom/`. The profile's `PROFILE_DOCKER_IMAGE` field points to the locally-built tag. Must be built before first use.
 
-### Curated profiles in `profiles/`
+### Curated profiles (southbyte-spark-profiles)
 
-`profiles/<model-dir>/vllm_profile.conf` contains hand-validated settings. Copy to `~/hf_models/<model>/` to bypass auto-generation. The auto-generator's `KNOWN_GOOD` dict contains the same data as Python source.
+`vllm/profiles/<model-dir>/vllm_profile.conf` in [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) contains hand-validated settings. Copy to `~/hf_models/<model>/` to bypass auto-generation. The auto-generator's `KNOWN_GOOD` dict contains the same data as Python source.
 
 ### `testplan/` architecture
 
-Central config: `testplan/config/testplan.yaml` — defines infrastructure (judge/target hosts), all model definitions with `profile` names matching `profiles/` directories, K.O. thresholds, quality targets, and playbook definitions.
+Central config: `testplan/config/testplan.yaml` — defines infrastructure (judge/target hosts), all model definitions with `profile` names matching `vllm/profiles/` directories in southbyte-spark-profiles, K.O. thresholds, quality targets, and playbook definitions.
 
 **Orchestrator flow** (`orchestrator.py`):
 1. Start judge model on Spark A (persistent across all targets)

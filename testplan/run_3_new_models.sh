@@ -5,7 +5,7 @@
 # Usage: setsid nohup ./run_3_new_models.sh > logs/run_3_new_<ts>.log 2>&1 < /dev/null & disown
 
 set -u
-cd $HOME/dgx-spark/dgx-spark-vllm/testplan
+cd $HOME/southbyte/southbyte-vllm/testplan
 source .venv/bin/activate
 
 TS="$(date +%Y%m%d_%H%M)"

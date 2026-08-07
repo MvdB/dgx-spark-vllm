@@ -11,7 +11,7 @@ import yaml
 
 
 def _default_spark_path() -> str:
-    return os.environ.get("VLLM_SPARK_PATH", str(Path.home() / "dgx-spark" / "dgx-spark-vllm"))
+    return os.environ.get("VLLM_SPARK_PATH", str(Path.home() / "southbyte" / "southbyte-vllm"))
 
 
 @dataclass

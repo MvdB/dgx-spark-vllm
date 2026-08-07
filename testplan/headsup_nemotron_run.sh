@@ -10,7 +10,7 @@
 # Usage (real): setsid nohup ./headsup_nemotron_run.sh > /dev/null 2>&1 < /dev/null & disown
 
 set -u
-cd $HOME/dgx-spark/dgx-spark-vllm/testplan
+cd $HOME/southbyte/southbyte-vllm/testplan
 source .venv/bin/activate
 export TARGET_HOST=localhost
 
@@ -40,7 +40,7 @@ MODELS="Nemotron-Puzzle-75B,Nemotron-3-Super"
   echo "--- Phase 3: STT-Server wieder hochfahren ---"
   docker ps -aq --filter name=^/vllm-server$ | xargs -r docker rm -f 2>/dev/null || true
   HOST_PORT=8000 HF_MODELS_DIR="$HOME/hf_models" \
-    bash $HOME/dgx-spark/dgx-spark-vllm/runner/vllm_spark.sh \
+    bash $HOME/southbyte/southbyte-vllm/runner/vllm_spark.sh \
     --model granite-speech-4.1-2b-plus --skip-pull || \
     echo "[$(date -Is)] WARNUNG: STT-Neustart fehlgeschlagen — manuell starten"
   echo "[$(date -Is)] STT-Restart angestoßen"
