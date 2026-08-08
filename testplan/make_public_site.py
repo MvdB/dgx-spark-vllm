@@ -349,7 +349,7 @@ def llm_chapter(data, cid, title, lead, card_title):
         ov = r["overall"] or "—"
         ov_html = f'<span class="ko">{esc(ov)}</span>' if ov == "K.O." else esc(ov)
         url, lbl = model_repo(r["profile"], r["is_saas"])
-        hf = f' <a href="{esc(url)}" title="Repo/Anbieter">↗</a>' if url else ""
+        hf = f' <a href="{esc(url)}" title="Repo/Anbieter" target="_blank" rel="noopener">↗</a>' if url else ""
         link = f'<a href="m/{esc(r["stem"])}.html">{esc(r["model"])}</a>{hf}'
         cells = [link, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
         for c in cols:
@@ -401,7 +401,7 @@ def _llm_teaser(meta, summ, pbs):
              f'<span><b>Judge</b><code>{esc(meta.get("judge", "—"))}</code></span>']
     url, lbl = model_repo(profile, is_saas)
     if url:
-        facts.insert(3, f'<span><b>Repo</b><a href="{esc(url)}">{esc(lbl)}</a></span>')
+        facts.insert(3, f'<span><b>Repo</b><a href="{esc(url)}" target="_blank" rel="noopener">{esc(lbl)}</a></span>')
     vllm = meta.get("vllm") or meta.get("vllm_tag")
     if vllm and not is_saas:
         facts.insert(1, f'<span><b>vLLM</b><code>{esc(vllm)}</code></span>')
@@ -466,7 +466,7 @@ def _guard_teaser(g):
              f'<span><b>Protokoll</b><code>{esc(g.get("protocol", "—"))}</code></span>']
     url, lbl = model_repo(served, False)
     if url:
-        facts.insert(3, f'<span><b>Repo</b><a href="{esc(url)}">{esc(lbl)}</a></span>')
+        facts.insert(3, f'<span><b>Repo</b><a href="{esc(url)}" target="_blank" rel="noopener">{esc(lbl)}</a></span>')
     if g.get("threshold") is not None:
         facts.append(f'<span><b>Threshold</b>{esc(g["threshold"])}</span>')
     if g.get("reasoning_effort"):
@@ -552,7 +552,7 @@ def generate_details(runs, guards, prompts, gprompts):
             ov = row["overall"] or "—"
             ov_html = f'<span class="ko">{esc(ov)}</span>' if ov == "K.O." else esc(ov)
             url, _lbl = model_repo(row["profile"], row["is_saas"])
-            hf = f' <a href="{esc(url)}" title="Repo/Anbieter">↗</a>' if url else ""
+            hf = f' <a href="{esc(url)}" title="Repo/Anbieter" target="_blank" rel="noopener">↗</a>' if url else ""
             rows.append([f'<a href="{esc(row["stem"])}.html">{esc(row["model"])}</a>{hf}',
                          f'{ov_html} {esc(row["pass_rate"])}%',
                          esc(model_license(row["profile"], row["is_saas"]))])
