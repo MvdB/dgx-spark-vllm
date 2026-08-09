@@ -56,8 +56,10 @@ def _client() -> OpenAI:
 
 
 def measure(client, model_id, prompt, max_tokens):
-    """→ (ttft_ms, tok_s) oder (None, None) bei Fehler."""
-    t0 = time.perf_counter(); ttft = None; t_last = t0; comp = None
+    """→ (ttft_ms, tok_s). tok_s ist None, wenn kein zuverlässiges Generierungs-
+    Fenster messbar war (Antwort kam in 1–2 Chunks / <50 ms → Durchsatz nicht
+    seriös bestimmbar); die TTFT bleibt trotzdem gültig."""
+    t0 = time.perf_counter(); ttft = None; t_first = None; t_last = t0; comp = None; nchunks = 0
     try:
         stream = client.chat.completions.create(
             model=model_id, messages=[{"role": "user", "content": prompt}],
@@ -68,8 +70,8 @@ def measure(client, model_id, prompt, max_tokens):
                 dl = ch.choices[0].delta
                 if dl and (getattr(dl, "content", None) or getattr(dl, "reasoning_content", None)):
                     if ttft is None:
-                        ttft = now - t0
-                    t_last = now
+                        ttft = now - t0; t_first = now
+                    t_last = now; nchunks += 1
             if getattr(ch, "usage", None):
                 comp = ch.usage.completion_tokens
     except Exception as e:
@@ -77,8 +79,11 @@ def measure(client, model_id, prompt, max_tokens):
         return None, None
     if ttft is None or not comp:
         return None, None
-    gen = max(t_last - (t0 + ttft), 1e-3)
-    return ttft * 1000.0, comp / gen
+    gen = t_last - t_first
+    tok_s = comp / gen if (nchunks >= 3 and gen >= 0.05) else None
+    if tok_s is not None and tok_s > 3000:  # implausibel → verwerfen
+        tok_s = None
+    return ttft * 1000.0, tok_s
 
 
 def pct(vals, p):
@@ -100,15 +105,17 @@ def run_model(client, name, model_id) -> bool:
         ttft, toks = measure(client, model_id, prompt, mt)
         if ttft is None:
             errs += 1; continue
-        ttfts.append(ttft); by[kind].append(toks)
+        ttfts.append(ttft)
+        if toks is not None:
+            by[kind].append(toks)
+    if not ttfts:
+        print(f"    → keine validen Messungen (Modell nicht erreichbar?)"); return False
     all_toks = [t for v in by.values() for t in v]
-    if not all_toks:
-        print(f"    → keine validen Messungen"); return False
     metrics = {
-        "model": model_id, "n_measurements": len(all_toks), "n_errors": errs,
+        "model": model_id, "n_measurements": len(ttfts), "n_errors": errs,
         "ttft_p50_ms": pct(ttfts, 50), "ttft_p95_ms": pct(ttfts, 95), "ttft_p99_ms": pct(ttfts, 99),
-        "throughput_mean_tok_s": statistics.mean(all_toks),
-        "throughput_median_tok_s": statistics.median(all_toks),
+        "throughput_mean_tok_s": statistics.mean(all_toks) if all_toks else None,
+        "throughput_median_tok_s": statistics.median(all_toks) if all_toks else None,
         "throughput_by_type": {k: (round(statistics.mean(v), 1) if v else None) for k, v in by.items()},
         "source": "litellm-proxy (cloud+proxy-latenz, nicht lokale hardware)",
     }
@@ -121,8 +128,10 @@ def run_model(client, name, model_id) -> bool:
                      "response": json.dumps(metrics, ensure_ascii=False)}],
     }
     rp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"    → TTFT p50 {metrics['ttft_p50_ms']:.0f}ms · {metrics['throughput_median_tok_s']:.1f} tok/s "
-          f"(n={len(all_toks)}, err={errs})")
+    tm = metrics["throughput_median_tok_s"]
+    print(f"    → TTFT p50 {metrics['ttft_p50_ms']:.0f}ms · "
+          f"{f'{tm:.1f} tok/s' if tm is not None else 'Tok/s n/a (Einzel-Chunk)'} "
+          f"(ttft-n={len(ttfts)}, tok-n={len(all_toks)}, err={errs})")
     return True
 
 
