@@ -131,6 +131,48 @@ PLAYBOOK_LABELS = {
 _JUDGE_PBS = ("01_quality", "02_german_language", "03_bias", "05_code")
 _OV_CLS = {"PASS": "pass", "WARN": "warn", "FAIL": "fail", "K.O.": "knockout"}
 
+
+def _perf(pbs):
+    """Perf-Metriken (TTFT, Tok/s) aus 06_performance/perf_benchmark ziehen.
+    response ist auf 500 Zeichen gekürzt (JSON evtl. mittendrin abgeschnitten) →
+    tolerant per Regex; die Kernwerte (TTFT p50/95/99, Durchsatz) liegen davor."""
+    pb = pbs.get("06_performance")
+    if not isinstance(pb, dict):
+        return None
+    r = next((x for x in pb.get("results", []) if x.get("test_id") == "perf_benchmark"), None)
+    if not r:
+        return None
+    s = r.get("response", "") or ""
+
+    def numv(key):
+        m = re.search(rf'"{key}"\s*:\s*([\d.]+)', s)
+        return float(m.group(1)) if m else None
+
+    by = {}
+    mt = re.search(r'"throughput_by_type"\s*:\s*\{([^}]*)', s)
+    if mt:
+        for t in ("short", "medium", "long"):
+            mm = re.search(rf'"{t}"\s*:\s*([\d.]+)', mt.group(1))
+            if mm:
+                by[t] = float(mm.group(1))
+    p = {"ttft_p50": numv("ttft_p50_ms"), "ttft_p95": numv("ttft_p95_ms"),
+         "ttft_p99": numv("ttft_p99_ms"), "tok_mean": numv("throughput_mean_tok_s"),
+         "tok_median": numv("throughput_median_tok_s"), "by": by}
+    return p if (p["tok_median"] is not None or p["ttft_p50"] is not None) else None
+
+
+def _perf_section(p):
+    tk = lambda v: f"{v:.1f} tok/s" if v is not None else "—"
+    ms = lambda v: f"{v:.0f} ms" if v is not None else "—"
+    by = p.get("by", {})
+    rows = [["Durchsatz (Median / Ø)", f'{tk(p["tok_median"])} / {tk(p["tok_mean"])}'],
+            ["Durchsatz kurz / mittel / lang",
+             f'{tk(by.get("short"))} / {tk(by.get("medium"))} / {tk(by.get("long"))}'],
+            ["TTFT p50 / p95 / p99", f'{ms(p["ttft_p50"])} / {ms(p["ttft_p95"])} / {ms(p["ttft_p99"])}']]
+    return (f'<h2 id="performance">Performance</h2>'
+            f'<p class="note">Durchsatz = Generierungs-Tokens/s · TTFT = Time-to-First-Token.</p>'
+            f'{table(["Metrik", "Wert"], rows)}')
+
 CI_STYLE = """
  :root{--bg:#060C0A;--bg-raised:#0A1410;--bg-card:#0E1A14;--border:#162A1E;--border-hi:#1A5C38;
    --green:#00E676;--green-dim:#00994A;--amber:#F59E0B;--text:#D4EDE0;--text-muted:#5E8A72;--text-dim:#2E5040;
@@ -254,7 +296,7 @@ def _load_run_rows(files):
         pr = {k: v.get("pass_rate") for k, v in pbs.items()
               if k not in EXCLUDE_PLAYBOOKS and isinstance(v, dict)}
         rows.append({"model": name, "overall": summ.get("overall"), "pass_rate": summ.get("pass_rate"),
-                     "ko": summ.get("knockouts", 0), "pb": pr, "file": j, "stem": j.stem,
+                     "ko": summ.get("knockouts", 0), "pb": pr, "file": j, "stem": j.stem, "perf": _perf(pbs),
                      "profile": meta.get("profile", ""), "is_saas": meta.get("source") == "saas_proxy"})
     rows.sort(key=lambda r: float(r["pass_rate"] or 0), reverse=True)
     return rows, saas
@@ -264,10 +306,10 @@ def load_llm_runs():
     local = saas = None
     for d in sorted(REPORTS_DIR.glob("2026-*"), reverse=True):
         models = [j for j in d.glob("*.json") if not re.search(r"dashboard|index", j.name, re.I)]
-        if len(models) < 5:
+        if len(models) < 3:
             continue
         rows, nsaas = _load_run_rows(sorted(models))
-        if len(rows) < 5:
+        if len(rows) < 3:
             continue
         kind = "saas" if nsaas * 2 >= len(rows) else "local"
         if kind == "saas" and saas is None:
@@ -342,8 +384,9 @@ def load_testdata_prompts():
 def llm_chapter(data, cid, title, lead, card_title):
     if not data or not data["rows"]:
         return "", card(card_title, "—", "keine Berichte")
-    cols = list(PLAYBOOK_LABELS)
-    header = ["Modell", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols] + ["Lizenz"]
+    cols = [c for c in PLAYBOOK_LABELS if c != "06_performance"]
+    header = (["Modell", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
+              + ["Tok/s", "TTFT", "Lizenz"])
     rows = []
     for r in data["rows"]:
         ov = r["overall"] or "—"
@@ -355,6 +398,9 @@ def llm_chapter(data, cid, title, lead, card_title):
         for c in cols:
             v = r["pb"].get(c)
             cells.append("—" if v is None else f"{round(float(v) * 100)}%")
+        p = r.get("perf") or {}
+        cells.append(f'{p["tok_median"]:.1f}' if p.get("tok_median") is not None else "—")
+        cells.append(f'{p["ttft_p50"]:.0f} ms' if p.get("ttft_p50") is not None else "—")
         cells.append(esc(model_license(r["profile"], r["is_saas"])))
         rows.append(cells)
     best = data["rows"][0]
@@ -419,6 +465,9 @@ def llm_detail_html(row, prompts):
     d = json.loads(row["file"].read_text(encoding="utf-8"))
     meta, pbs, summ = d.get("meta", {}), d.get("playbooks", {}), d.get("summary", {})
     parts = [_llm_teaser(meta, summ, pbs)]
+    perf = _perf(pbs)
+    if perf:
+        parts.append(_perf_section(perf))
     for pb in _JUDGE_PBS:
         if pb not in pbs:
             continue
