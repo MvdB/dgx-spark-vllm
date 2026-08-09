@@ -63,6 +63,18 @@ COHORT: list[tuple[str, str, float, float]] = [
     ("Mistral-Medium",     "mistral/mistral-medium-latest",    0.40,  2.00),
     ("Magistral-Medium",   "mistral/magistral-medium-latest",  2.00,  5.00),
     ("Ministral-8B",       "mistral/ministral-8b-latest",      0.10,  0.10),
+    # --- Erweiterung 2026-08: weitere Frontier-Chat-Modelle aus dem LiteLLM-Proxy ---
+    ("DeepSeek-V4-Pro",    "deepseek/deepseek-v4-pro",         1.00,  3.00),
+    ("GLM-5.2",            "z-ai/glm-5.2",                     0.50,  2.00),
+    ("Kimi-K3",            "moonshotai/kimi-k3",               1.00,  3.00),
+    ("MiniMax-M3",         "minimax/minimax-m3",               0.50,  2.00),
+    ("Qwen3.8-Max",        "qwen/qwen3.8-max",                 1.00,  4.00),
+    ("Qwen3.7-Plus",       "qwen/qwen3.7-plus",                0.50,  2.00),
+    ("Step-3.7-Flash",     "stepfun/step-3.7-flash",           0.30,  1.00),
+    ("Hunyuan-3",          "tencent/hy3",                      0.50,  2.00),
+    ("MiMo-v2.5-Pro",      "xiaomi/mimo-v2.5-pro",             0.50,  2.00),
+    ("MiMo-v2.5",          "xiaomi/mimo-v2.5",                 0.30,  1.00),
+    ("Nemotron-3-Ultra-550B", "nvidia/nemotron-3-ultra-550b-a55b:free", 0.00, 0.00),
 ]
 
 JUDGE_MODEL = "claude-sonnet-5"

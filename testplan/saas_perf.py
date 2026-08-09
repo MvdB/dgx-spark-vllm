@@ -33,6 +33,12 @@ COHORT = [
     ("Mistral-Medium", "mistral/mistral-medium-latest"),
     ("Magistral-Medium", "mistral/magistral-medium-latest"),
     ("Ministral-8B", "mistral/ministral-8b-latest"),
+    ("DeepSeek-V4-Pro", "deepseek/deepseek-v4-pro"), ("GLM-5.2", "z-ai/glm-5.2"),
+    ("Kimi-K3", "moonshotai/kimi-k3"), ("MiniMax-M3", "minimax/minimax-m3"),
+    ("Qwen3.8-Max", "qwen/qwen3.8-max"), ("Qwen3.7-Plus", "qwen/qwen3.7-plus"),
+    ("Step-3.7-Flash", "stepfun/step-3.7-flash"), ("Hunyuan-3", "tencent/hy3"),
+    ("MiMo-v2.5-Pro", "xiaomi/mimo-v2.5-pro"), ("MiMo-v2.5", "xiaomi/mimo-v2.5"),
+    ("Nemotron-3-Ultra-550B", "nvidia/nemotron-3-ultra-550b-a55b:free"),
 ]
 # (label, prompt, max_tokens) — kurz gehalten
 PROMPTS = [
@@ -78,12 +84,16 @@ def measure(client, model_id, prompt, max_tokens):
         print(f"    ! Fehler: {type(e).__name__}: {str(e)[:80]}", flush=True)
         return None, None
     if ttft is None or not comp:
-        return None, None
+        return None, None, False  # nicht erreichbar / keine Antwort
     gen = t_last - t_first
-    tok_s = comp / gen if (nchunks >= 3 and gen >= 0.05) else None
-    if tok_s is not None and tok_s > 3000:  # implausibel → verwerfen
+    if nchunks < 3 or gen < 0.05:
+        # Antwort kam in 1–2 Chunks → weder echtes TTFT noch Durchsatz messbar
+        # (LiteLLM buffert die ganze Antwort). Erreichbar, aber nichts Verwertbares.
+        return None, None, True
+    tok_s = comp / gen
+    if tok_s > 3000:  # implausibel → verwerfen
         tok_s = None
-    return ttft * 1000.0, tok_s
+    return ttft * 1000.0, tok_s, True
 
 
 def pct(vals, p):
@@ -100,19 +110,21 @@ def run_model(client, name, model_id) -> bool:
         print(f"  {name}: kein Report — skip"); return False
     print(f"  {name} ({model_id}) …", flush=True)
     ttfts, by = [], {"short": [], "medium": [], "long": []}
-    errs = 0
+    errs = reach = 0
     for kind, prompt, mt in PROMPTS:
-        ttft, toks = measure(client, model_id, prompt, mt)
-        if ttft is None:
+        ttft, toks, ok = measure(client, model_id, prompt, mt)
+        if not ok:
             errs += 1; continue
-        ttfts.append(ttft)
+        reach += 1
+        if ttft is not None:
+            ttfts.append(ttft)
         if toks is not None:
             by[kind].append(toks)
-    if not ttfts:
-        print(f"    → keine validen Messungen (Modell nicht erreichbar?)"); return False
+    if reach == 0:
+        print(f"    → nicht erreichbar (alle {errs} Fehler)"); return False
     all_toks = [t for v in by.values() for t in v]
     metrics = {
-        "model": model_id, "n_measurements": len(ttfts), "n_errors": errs,
+        "model": model_id, "n_measurements": reach, "n_errors": errs,
         "ttft_p50_ms": pct(ttfts, 50), "ttft_p95_ms": pct(ttfts, 95), "ttft_p99_ms": pct(ttfts, 99),
         "throughput_mean_tok_s": statistics.mean(all_toks) if all_toks else None,
         "throughput_median_tok_s": statistics.median(all_toks) if all_toks else None,
@@ -128,10 +140,11 @@ def run_model(client, name, model_id) -> bool:
                      "response": json.dumps(metrics, ensure_ascii=False)}],
     }
     rp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-    tm = metrics["throughput_median_tok_s"]
-    print(f"    → TTFT p50 {metrics['ttft_p50_ms']:.0f}ms · "
-          f"{f'{tm:.1f} tok/s' if tm is not None else 'Tok/s n/a (Einzel-Chunk)'} "
-          f"(ttft-n={len(ttfts)}, tok-n={len(all_toks)}, err={errs})")
+    tm = metrics["throughput_median_tok_s"]; tp = metrics["ttft_p50_ms"]
+    tp_s = f"{tp:.0f}ms" if tp is not None else "n/a"
+    tm_s = f"{tm:.1f} tok/s" if tm is not None else "n/a"
+    tag = " [single-chunk → keine Perf]" if not ttfts and not all_toks else ""
+    print(f"    → TTFT p50 {tp_s} · {tm_s} (ttft-n={len(ttfts)}, tok-n={len(all_toks)}, err={errs}){tag}")
     return True
 
 
