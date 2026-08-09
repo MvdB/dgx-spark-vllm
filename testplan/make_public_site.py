@@ -155,9 +155,11 @@ def _perf(pbs):
             mm = re.search(rf'"{t}"\s*:\s*([\d.]+)', mt.group(1))
             if mm:
                 by[t] = float(mm.group(1))
+    ms = re.search(r'"source"\s*:\s*"([^"]*)"', s)
     p = {"ttft_p50": numv("ttft_p50_ms"), "ttft_p95": numv("ttft_p95_ms"),
          "ttft_p99": numv("ttft_p99_ms"), "tok_mean": numv("throughput_mean_tok_s"),
-         "tok_median": numv("throughput_median_tok_s"), "by": by}
+         "tok_median": numv("throughput_median_tok_s"), "by": by,
+         "cloud": bool(ms and "proxy" in ms.group(1).lower())}
     return p if (p["tok_median"] is not None or p["ttft_p50"] is not None) else None
 
 
@@ -169,8 +171,11 @@ def _perf_section(p):
             ["Durchsatz kurz / mittel / lang",
              f'{tk(by.get("short"))} / {tk(by.get("medium"))} / {tk(by.get("long"))}'],
             ["TTFT p50 / p95 / p99", f'{ms(p["ttft_p50"])} / {ms(p["ttft_p95"])} / {ms(p["ttft_p99"])}']]
+    note = ("gemessen über <b>LiteLLM</b> — Cloud-Modell + Netz, nicht lokale Hardware. "
+            "Dieser LiteLLM-Aufbau (ein Endpoint für Cloud- und lokale Modelle) wird von SouthByte empfohlen"
+            if p.get("cloud") else "lokale Messung auf DGX Spark (GB10)")
     return (f'<h2 id="performance">Performance</h2>'
-            f'<p class="note">Durchsatz = Generierungs-Tokens/s · TTFT = Time-to-First-Token.</p>'
+            f'<p class="note">Durchsatz = Generierungs-Tokens/s · TTFT = Time-to-First-Token · {note}.</p>'
             f'{table(["Metrik", "Wert"], rows)}')
 
 CI_STYLE = """
@@ -213,6 +218,9 @@ CI_STYLE = """
  .case .cid{font-family:var(--mono);font-size:.8rem;color:var(--text-muted)}
  .badge{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.1em .5em;border-radius:4px;border:1px solid var(--border-hi)}
  .badge.pass{color:var(--green)} .badge.warn{color:var(--amber)} .badge.fail,.badge.knockout{color:var(--ko)} .badge.error{color:var(--text-dim)}
+ .badge.valid{color:var(--green)} .badge.running{color:var(--amber)} .badge.degraded{color:#F59E0B;border-color:#7A4A0A}
+ .badge.pending{color:var(--text-muted)} .badge.na{color:var(--text-dim)}
+ tr.st-degraded td:first-child,tr.st-pending td:first-child,tr.st-na td:first-child{color:var(--text-muted)}
  .qa{margin:.45rem 0} .qa .lbl{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:.15rem}
  .qa .txt{white-space:pre-wrap;word-break:break-word}
  .resp{background:var(--bg-raised);border-left:3px solid var(--border-hi);padding:.45rem .65rem;border-radius:3px}
@@ -321,6 +329,82 @@ def load_llm_runs():
     return {"local": local, "saas": saas}
 
 
+def load_roster():
+    """Kohorten-Plan aus config/testplan.yaml (stdlib-Regex, kein pyyaml — die
+    Seite ist bewusst dependency-frei). Roster = Modelle, die zum Lauf gehören:
+    active ODER explizit als N/A markiert. Liefert (name, profile, active, na)."""
+    cfg = TESTPLAN / "config" / "testplan.yaml"
+    try:
+        txt = cfg.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for b in re.split(r"\n\s*-\s+name:\s*", txt)[1:]:
+        name = b.splitlines()[0].strip().strip("\"'")
+        mp = re.search(r'\n\s*profile:\s*"?([^"\n]+)"?', b)
+        if not mp:  # nur echte Modell-Einträge (haben ein profile:) — keine Playbooks
+            continue
+        profile = mp.group(1).strip().strip("\"'")
+        ma = re.search(r"\n\s*active:\s*(true|false)", b)
+        active = (ma.group(1) == "true") if ma else True
+        mn = re.search(r'\n\s*notes:\s*"?(.*)', b)
+        note = mn.group(1) if mn else ""
+        na = (not active) and bool(re.search(r"\bN/?A\b", name + " " + note))
+        out.append({"name": name, "profile": profile, "active": active, "na": na})
+    return out
+
+
+def _scan_local_reports(run_dir):
+    """ALLE lokalen Reports eines Laufs (auch fehlerhafte) → {name: info} mit
+    Validitätsflag. Basis für die Roster-Statusspalte (gültig vs. degraded)."""
+    out = {}
+    if not run_dir:
+        return out
+    for j in sorted(Path(run_dir).glob("*.json")):
+        if re.search(r"dashboard|index|summary", j.name, re.I):
+            continue
+        try:
+            d = json.loads(j.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        meta, summ, pbs = d.get("meta", {}), d.get("summary", {}), d.get("playbooks", {})
+        if meta.get("source") == "saas_proxy":
+            continue
+        total = err = 0
+        for k, v in pbs.items():
+            if k in EXCLUDE_PLAYBOOKS or not isinstance(v, dict):
+                continue
+            for res in v.get("results", []):
+                total += 1
+                if res.get("verdict") == "error":
+                    err += 1
+        rate = (err / total) if total else 1.0
+        name = str(meta.get("model") or j.stem).rsplit("/", 1)[-1]
+        pr = {k: v.get("pass_rate") for k, v in pbs.items()
+              if k not in EXCLUDE_PLAYBOOKS and isinstance(v, dict)}
+        out[name] = {"stem": j.stem, "err_rate": rate, "valid": total > 0 and rate <= 0.3,
+                     "pass_rate": summ.get("pass_rate"), "overall": summ.get("overall"),
+                     "ko": summ.get("knockouts", 0), "pb": pr, "perf": _perf(pbs),
+                     "profile": meta.get("profile", ""), "total": total}
+    return out
+
+
+def _running_profile():
+    """Profil-Verzeichnis des aktuell servierten vLLM-Containers (für Status
+    „läuft"). Best effort — fehlt Docker/Host, dann eben „ausstehend"."""
+    try:
+        import subprocess
+        out = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except Exception:
+        return ""
+    for ln in out.splitlines():
+        ln = ln.strip()
+        if ln.startswith("vllm-") and "--" in ln:
+            return ln[len("vllm-"):]
+    return ""
+
+
 def load_guards():
     out = []
     for j in sorted(GUARDS_DIR.glob("*.json")):
@@ -410,6 +494,107 @@ def llm_chapter(data, cid, title, lead, card_title):
            f'<strong>Sicherheit (04) ausgeschlossen</strong>.</p>\n'
            f'<div style="overflow-x:auto">{table(header, rows)}</div>')
     c = card(card_title, str(len(rows)), f'Modelle · Top {esc(best["pass_rate"])}%', f"#{cid}")
+    return sec, c
+
+
+_STATUS_RANK = {"valid": 0, "running": 1, "degraded": 2, "pending": 3, "na": 4}
+_STATUS_BADGE = {"valid": "✅ gültig", "running": "🔄 läuft", "degraded": "⚠ degraded",
+                 "pending": "⏳ ausstehend", "na": "⛔ N/A"}
+
+
+def llm_local_chapter(local, roster, reports, running_prof):
+    """Volles Roster der lokalen Kohorte mit Statusspalte: jedes geplante Modell
+    erscheint (gültig / läuft / degraded / ausstehend / N/A) — nicht nur die
+    bestandenen. Gültige Zeilen sind verlinkt und voll bewertet."""
+    cols = [c for c in PLAYBOOK_LABELS if c != "06_performance"]
+    header = (["Modell", "Status", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
+              + ["Tok/s", "TTFT", "Lizenz"])
+    valid_by_name = {r["model"]: r for r in (local["rows"] if local else [])}
+    entries, seen = [], set()
+    for m in roster:
+        name = m["name"]
+        # Kohorte = geplant (active) ODER explizit N/A ODER hat einen Report.
+        # Dormante Modelle (inactive, nie gelaufen) gehören nicht ins Roster.
+        if not m["active"] and not m["na"] and name not in reports:
+            continue
+        seen.add(name); rep = reports.get(name)
+        if name in valid_by_name:
+            status = "valid"
+        elif rep and rep["total"] and not rep["valid"]:
+            status = "degraded"
+        elif m["na"]:
+            status = "na"
+        elif running_prof and m["profile"] and m["profile"] == running_prof:
+            status = "running"
+        else:
+            status = "pending"
+        entries.append((status, name, m, rep))
+    for name, rep in reports.items():  # Reports ohne Roster-Eintrag (Sicherheit)
+        if name in seen:
+            continue
+        entries.append(("valid" if rep["valid"] else "degraded", name,
+                        {"name": name, "profile": rep["profile"], "na": False}, rep))
+
+    def sk(e):
+        status, name, _m, _r = e
+        pr = float(valid_by_name[name]["pass_rate"] or 0) if status == "valid" and name in valid_by_name else 0.0
+        return (_STATUS_RANK[status], -pr, name.lower())
+    entries.sort(key=sk)
+
+    dash = ["—"] * (len(cols) + 2)  # Playbooks + Tok/s + TTFT
+    rows = []
+    n_valid = 0
+    for status, name, m, rep in entries:
+        badge = f'<span class="badge {status}">{_STATUS_BADGE[status]}</span>'
+        prof = m.get("profile", "") or (rep or {}).get("profile", "")
+        lic = esc(model_license(prof, False))
+        if status == "valid":
+            n_valid += 1
+            r = valid_by_name[name]
+            ov = r["overall"] or "—"
+            ov_html = f'<span class="ko">{esc(ov)}</span>' if ov == "K.O." else esc(ov)
+            url, _l = model_repo(r["profile"], False)
+            hf = f' <a href="{esc(url)}" title="Repo" target="_blank" rel="noopener">↗</a>' if url else ""
+            link = f'<a href="m/{esc(r["stem"])}.html">{esc(name)}</a>{hf}'
+            cells = [link, badge, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
+            for c in cols:
+                v = r["pb"].get(c)
+                cells.append("—" if v is None else f"{round(float(v) * 100)}%")
+            p = r.get("perf") or {}
+            cells.append(f'{p["tok_median"]:.1f}' if p.get("tok_median") is not None else "—")
+            cells.append(f'{p["ttft_p50"]:.0f} ms' if p.get("ttft_p50") is not None else "—")
+            cells.append(lic)
+        elif status == "degraded":
+            gesamt = f'<span class="ko">{round(rep["err_rate"] * 100)}% Fehler</span>'
+            cells = [esc(name), badge, gesamt, str(rep.get("ko") or 0)]
+            for c in cols:
+                v = rep["pb"].get(c)
+                cells.append("—" if v is None else f'<span class="note">{round(float(v) * 100)}%</span>')
+            p = rep.get("perf") or {}
+            cells.append(f'{p["tok_median"]:.1f}' if p.get("tok_median") is not None else "—")
+            cells.append(f'{p["ttft_p50"]:.0f} ms' if p.get("ttft_p50") is not None else "—")
+            cells.append(lic)
+        else:  # running / pending / na
+            cells = [esc(name), badge, "—", "—"] + dash + [lic]
+        rows.append((status, cells))
+
+    trs = "".join(f'<tr class="st-{st}">' + "".join(f"<td>{c}</td>" for c in cs) + "</tr>"
+                  for st, cs in rows)
+    th = "".join(f"<th>{esc(h)}</th>" for h in header)
+    tbl = f"<table><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>"
+    counts = {}
+    for st, _cs in rows:
+        counts[st] = counts.get(st, 0) + 1
+    legend = " · ".join(f'{_STATUS_BADGE[s]} {counts[s]}' for s in _STATUS_RANK if counts.get(s))
+    run = esc(local["run"]) if local else "—"
+    sec = (f'<h2 id="llm-local">LLM — Lokale Modelle (DGX Spark)</h2>\n'
+           f'<p>Auf dem GB10 selbst serviert (vLLM), Judge-bewertet. <strong>Vollständiges '
+           f'Kohorten-Roster</strong> — jedes geplante Modell mit Status, nicht nur die bestandenen. '
+           f'Lauf <code>{run}</code> · {len(rows)} Modelle ({legend}). '
+           f'<strong>Gültige Modelle anklicken</strong> → Detail (Prompt, Antwort, Judge je Fall). '
+           f'<strong>Sicherheit (04) ausgeschlossen</strong>.</p>\n'
+           f'<div style="overflow-x:auto">{tbl}</div>')
+    c = card("LLM lokal", f'{n_valid}/{len(rows)}', "gültig · volles Roster", "#llm-local")
     return sec, c
 
 
@@ -625,12 +810,13 @@ def generate_details(runs, guards, prompts, gprompts):
     return sum(len(s[2]) for s in m_sections), n_g
 
 
-def build_index(runs, guards):
-    local_sec, local_card = llm_chapter(runs["local"], "llm-local", "LLM — Lokale Modelle (DGX Spark)",
-                                        "Auf dem GB10 selbst serviert (vLLM), Judge-bewertet.", "LLM lokal")
+def build_index(runs, guards, roster, reports, running_prof):
+    local_sec, local_card = llm_local_chapter(runs["local"], roster, reports, running_prof)
     saas_sec, saas_card = llm_chapter(runs["saas"], "llm-saas", "LLM — SaaS-Referenzkohorte",
-                                      "Frontier-Modelle über eine OpenAI-kompatible API als Referenzrahmen, "
-                                      "gleicher Testsatz, Judge <code>claude-sonnet-5</code>.", "LLM SaaS")
+                                      "Frontier-Modelle über <b>LiteLLM</b> als Referenzrahmen — ein Endpoint für "
+                                      "Cloud- und lokale Modelle, von SouthByte empfohlen. Gleicher Testsatz, "
+                                      "Judge <code>claude-sonnet-5</code>. Tok/s &amp; TTFT messen hier Cloud+Netz "
+                                      "(nicht lokale Hardware).", "LLM SaaS")
     g_sec, g_card = guards_section(guards)
     cards = "\n".join([local_card, saas_card, g_card])
     inner = (f'<div class="cards">{cards}</div>\n{local_sec}\n{saas_sec}\n{g_sec}')
@@ -647,7 +833,11 @@ def main():
     guards = load_guards()
     prompts = load_testdata_prompts()
     gprompts = load_guard_prompts()
-    (DOCS / "index.html").write_text(build_index(runs, guards), encoding="utf-8")
+    roster = load_roster()
+    run_dir = (REPORTS_DIR / runs["local"]["run"]) if runs.get("local") else None
+    reports = _scan_local_reports(run_dir)
+    running_prof = _running_profile()
+    (DOCS / "index.html").write_text(build_index(runs, guards, roster, reports, running_prof), encoding="utf-8")
     n_llm, n_guard = generate_details(runs, guards, prompts, gprompts)
     if _lic_dirty[0]:
         _LIC_CACHE_FILE.write_text(json.dumps(_lic_disk, ensure_ascii=False, indent=2), encoding="utf-8")
