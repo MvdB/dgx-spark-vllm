@@ -138,24 +138,71 @@ class VllmController:
         )
         try:
             self._wait_for_ready(instance, timeout=endpoint.startup_timeout)
-        except TimeoutError:
-            logger.warning("Startup-Timeout für %s — räume Container auf ...", model.name)
+        except (TimeoutError, RuntimeError) as exc:
+            grund = "Startup-Timeout" if isinstance(exc, TimeoutError) else "Container-Crash (Fail-Fast)"
+            logger.warning("%s für %s — räume Container auf ...", grund, model.name)
             self._exec(host, f"docker rm -f {container_name} 2>/dev/null || true")
             raise
 
         logger.info("✓ %s bereit auf %s", model.name, endpoint.base_url)
         return instance
 
+    def _container_exited(self, instance: VllmInstance) -> tuple[bool, str]:
+        """Prüfe, ob der vLLM-Container vorzeitig gestorben ist (Fail-Fast).
+
+        Rückgabe ``(exited, detail)``. ``exited=False`` auch dann, wenn der
+        Container (noch) unbekannt ist — in dem Fall weiter pollen, kein
+        Fehlalarm. Nur die Zustände ``exited``/``dead`` gelten als Absturz.
+        """
+        name = getattr(instance, "container_name", None)
+        if not name:
+            return False, ""
+        host = instance.endpoint.host
+        fmt = "{{.State.Status}}|{{.State.ExitCode}}"
+        out, _, rc = self._exec(host, f"docker inspect -f '{fmt}' {name} 2>/dev/null")
+        if rc != 0 or "|" not in out:
+            return False, ""  # Container noch nicht erzeugt / unbekannt → weiter pollen
+        status, _, code = out.strip().partition("|")
+        if status not in ("exited", "dead"):
+            return False, ""
+        # Ursache aus den letzten Fehlerzeilen des Container-Logs ziehen
+        logs, _, _ = self._exec(host, (
+            f"docker logs --tail 60 {name} 2>&1 | "
+            f"grep -iE 'error|exception|assert|cuda|valueerror|runtimeerror|"
+            f"out of memory|capability|not implemented|traceback' | "
+            f"grep -viE ' INFO | WARNING ' | tail -6"
+        ))
+        detail = logs.strip() or "(keine Fehlerzeile im Container-Log gefunden)"
+        return True, f"Container-Status '{status}' (exit={code}). Ursache:\n{detail}"
+
     def _wait_for_ready(self, instance: VllmInstance, timeout: int = 600) -> None:
-        """Warte bis der vLLM Health-Endpoint antwortet."""
+        """Warte bis der vLLM Health-Endpoint antwortet.
+
+        Fail-Fast: stirbt der Container während des Wartens (z.B. KV-Cache-OOM,
+        nicht unterstützte Architektur), wird sofort abgebrochen statt den vollen
+        ``timeout`` auf eine Leiche zu warten.
+        """
         import urllib.request
         import urllib.error
 
         health_url = f"{instance.endpoint.base_url}/health"
         start = time.monotonic()
         last_log = 0.0
+        last_check = 0.0
 
         while time.monotonic() - start < timeout:
+            # Fail-Fast: Container bereits gestorben? Dann nicht weiter warten.
+            elapsed = time.monotonic() - start
+            if elapsed - last_check >= 15:
+                last_check = elapsed
+                exited, detail = self._container_exited(instance)
+                if exited:
+                    name = instance.model.name if instance.model else "Judge"
+                    raise RuntimeError(
+                        f"{name}: vLLM-Container vorzeitig beendet nach "
+                        f"{elapsed:.0f}s (statt {timeout}s Timeout). {detail}"
+                    )
+
             try:
                 req = urllib.request.Request(health_url, method="GET")
                 with urllib.request.urlopen(req, timeout=5) as resp:
