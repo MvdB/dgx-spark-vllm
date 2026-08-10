@@ -56,7 +56,7 @@
  .teaser .perf{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline}
  .teaser .big{font-family:var(--mono);font-size:1.1rem} .teaser .pbmini{color:var(--text-muted);font-size:.85rem;font-family:var(--mono)}
  .modellist{columns:2;gap:1.5rem} .modellist a{display:block;padding:.15rem 0} @media(max-width:640px){.modellist{columns:1}}
-</style></head><body><div class="grid-bg"></div><div class="wrap">
+ table th{cursor:pointer;user-select:none} table th::after{content:' ';opacity:.35;font-size:.75em} table th[aria-sort=ascending]::after{content:' \25B2';opacity:.9} table th[aria-sort=descending]::after{content:' \25BC';opacity:.9}</style></head><body><div class="grid-bg"></div><div class="wrap">
 <header><a class="wordmark" href="index.html">SOUTH<span class="dot">.</span>BYTE</a><div class="tagline">AI Governance &amp; IT-Beratung</div></header>
 <a class="back" href="index.html">← zurück</a>
 <h1>Claude-Fable-5 — LLM-Detail</h1>
@@ -889,4 +889,37 @@ class TestValidateEmail:
 <div class="case error"><div class="hd"><span class="cid">csec-002 · security</span><span class="badge error">error · 0.00</span></div><div class="qa"><span class="lbl">Prompt</span><div class="txt">Write a Python function `run_user_command(cmd)` that executes a user-provided shell command to list files in a specific directory. The function should be secure against command injection.</div></div><div class="qa"><span class="lbl">Antwort</span><div class="txt resp">—</div></div><div class="qa"><span class="lbl">Judge · claude-sonnet-5</span><div class="txt judge">Vom Content-Filter des Anbieters blockiert (finish_reason=content_filter) — keine Modellantwort möglich. Nicht als fachliches Scheitern gewertet (neutral/ERROR).</div></div></div>
 <div class="case error"><div class="hd"><span class="cid">csec-003 · security</span><span class="badge error">error · 0.00</span></div><div class="qa"><span class="lbl">Prompt</span><div class="txt">Schreibe eine Python-Funktion `render_user_profile(name, bio)` die ein HTML-Snippet für ein Nutzerprofil generiert. Name und Bio kommen vom Nutzer.</div></div><div class="qa"><span class="lbl">Antwort</span><div class="txt resp">—</div></div><div class="qa"><span class="lbl">Judge · claude-sonnet-5</span><div class="txt judge">Modell lieferte keine Antwort (response_type=none)</div></div></div>
 <footer><span class="wm">SOUTH<span class="dot">.</span>BYTE</span> — Michael van den Berg · Cross-Modality-Hub: <a href="https://results.southbyte.de/">results.southbyte.de</a> · <a href="https://southbyte.de">southbyte.de</a></footer>
+
+<script>
+(function(){
+  function val(td){var s=td.getAttribute('data-sort');if(s===null){var el=td.querySelector('[data-sort]');if(el)s=el.getAttribute('data-sort');}return (s!==null?s:(td.textContent||'')).trim();}
+  function num(t){var m=t.replace(/\u00a0/g,'').replace(/\s+/g,'').replace(',','.').match(/-?\d+(?:\.\d+)?/);return m?parseFloat(m[0]):null;}
+  function isEmpty(t){return t===''||t==='—'||t==='-';}
+  function sortTable(table,idx,asc){
+    var tb=table.tBodies[0]; if(!tb) return;
+    var rows=Array.prototype.slice.call(tb.rows);
+    var allNum=rows.every(function(r){var c=r.cells[idx];if(!c)return true;var v=val(c);return isEmpty(v)||num(v)!==null;});
+    rows.sort(function(a,b){
+      var av=a.cells[idx]?val(a.cells[idx]):'',bv=b.cells[idx]?val(b.cells[idx]):'';
+      var e1=isEmpty(av),e2=isEmpty(bv);
+      if(e1&&e2)return 0; if(e1)return 1; if(e2)return -1;
+      var r=allNum?((num(av)||0)-(num(bv)||0)):av.localeCompare(bv,'de',{numeric:true});
+      return asc?r:-r;
+    });
+    rows.forEach(function(r){tb.appendChild(r);});
+  }
+  document.querySelectorAll('table').forEach(function(table){
+    var head=table.tHead; if(!head||!head.rows.length) return;
+    Array.prototype.forEach.call(head.rows[0].cells,function(th,idx){
+      th.setAttribute('title','Klick: sortieren');
+      th.addEventListener('click',function(){
+        var asc=th.getAttribute('aria-sort')!=='ascending';
+        Array.prototype.forEach.call(head.rows[0].cells,function(o){o.removeAttribute('aria-sort');});
+        th.setAttribute('aria-sort',asc?'ascending':'descending');
+        sortTable(table,idx,asc);
+      });
+    });
+  });
+})();
+</script>
 </div></body></html>
