@@ -571,10 +571,10 @@ def llm_local_chapter(local, roster, reports, running_prof):
         seen.add(name); rep = reports.get(name)
         if name in valid_by_name:
             status = "valid"
+        elif m["na"]:  # explizites N/A überstimmt einen degradierten Report
+            status = "na"
         elif rep and rep["total"] and not rep["valid"]:
             status = "degraded"
-        elif m["na"]:
-            status = "na"
         elif running_prof and m["profile"] and m["profile"] == running_prof:
             status = "running"
         else:
