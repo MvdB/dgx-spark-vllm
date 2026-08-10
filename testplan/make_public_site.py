@@ -359,8 +359,14 @@ def _load_run_rows(files):
     return rows, saas
 
 
+# Kanonische lokale Kohorte: alle Nachzügler/Retries kopieren ihre frischen Reports
+# HIERHER zurück (COH in *_retry.sh). Maßgeblich ist diese Dir — nicht das neueste
+# (= partielles Retry-Dir → nur 3 valide) und nicht das größte (= alte Explorationsläufe).
+LOCAL_COHORT_RUN = "2026-08-08_1130"
+
+
 def load_llm_runs():
-    local = saas = None
+    locals_, saas = [], None
     for d in sorted(REPORTS_DIR.glob("2026-*"), reverse=True):
         models = [j for j in d.glob("*.json") if not re.search(r"dashboard|index", j.name, re.I)]
         if len(models) < 3:
@@ -368,13 +374,14 @@ def load_llm_runs():
         rows, nsaas = _load_run_rows(sorted(models))
         if len(rows) < 3:
             continue
-        kind = "saas" if nsaas * 2 >= len(rows) else "local"
-        if kind == "saas" and saas is None:
-            saas = {"run": d.name, "rows": rows}
-        elif kind == "local" and local is None:
-            local = {"run": d.name, "rows": rows}
-        if local and saas:
-            break
+        if nsaas * 2 >= len(rows):
+            if saas is None:  # neuester SaaS-Lauf
+                saas = {"run": d.name, "rows": rows}
+        else:
+            locals_.append({"run": d.name, "rows": rows})
+    # lokale Kohorte: gepinnte 1130 bevorzugen, sonst neuester lokaler Lauf
+    local = next((r for r in locals_ if r["run"] == LOCAL_COHORT_RUN), None) \
+        or (locals_[0] if locals_ else None)
     return {"local": local, "saas": saas}
 
 
