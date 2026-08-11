@@ -705,7 +705,8 @@ def guards_section(guards):
     best = max(guards, key=lambda g: g["metrics"].get("f1", 0) or 0)
     sec = (f'<h2 id="guards">Guardrails (Playbook 08)</h2>\n'
            f'<p class="note">Guard-Name anklicken → Fall für Fall (Wahrheit vs. Vorhersage). '
-           f'Kein Judge — das Label ist die Wahrheit.</p>\n{table(["Guard"] + keys + ["K.O."], rows)}')
+           f'Kein Judge — das Label ist die Wahrheit.</p>\n'
+           f'<div style="overflow-x:auto">{table(["Guard"] + keys + ["K.O."], rows)}</div>')
     c = card("Guards", f'{(best["metrics"].get("f1", 0) or 0):.3f}', f'bestes F1 · {best["label"]}', "#guards")
     return sec, c
 
