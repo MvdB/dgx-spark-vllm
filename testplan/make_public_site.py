@@ -255,10 +255,25 @@ def num(x) -> str:
     return "—" if x is None else (f"{x:.3f}" if isinstance(x, float) else str(x))
 
 
+# Bestwert-Richtung je Spaltentitel (grün hervorgehoben): min = niedriger besser,
+# max = höher besser. Unbekannte Titel bleiben unmarkiert.
+_BEST_DIR = {
+    "Gesamt": "max", "Tok/s": "max", "Durchsatz": "max", "F1": "max", "Recall": "max",
+    "Qualität": "max", "Deutsch": "max", "Bias": "max", "Code": "max", "Performance": "max",
+    "HSF": "max", "Guardrails": "max", "Sicherheit": "max",
+    "TTFT": "min", "FPR": "min", "Trap-FPR": "min",
+}
+
+
+def best_attr(h) -> str:
+    d = _BEST_DIR.get(str(h).strip())
+    return f' data-best="{d}"' if d else ""
+
+
 def table(headers, rows) -> str:
     if not rows:
         return '<p class="empty">Noch keine Daten.</p>'
-    th = "".join(f"<th>{esc(h)}</th>" for h in headers)
+    th = "".join(f"<th{best_attr(h)}>{esc(h)}</th>" for h in headers)
     trs = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>" for r in rows)
     return f"<table><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>"
 
@@ -282,6 +297,7 @@ SORT_CSS = (
     " table th::after{content:' ';opacity:.35;font-size:.75em}"
     " table th[aria-sort=ascending]::after{content:' \\25B2';opacity:.9}"
     " table th[aria-sort=descending]::after{content:' \\25BC';opacity:.9}"
+    " table td.best{font-weight:700;color:var(--green);background:var(--bg-raised)}"
 )
 SORT_SCRIPT = """
 <script>
@@ -312,6 +328,17 @@ SORT_SCRIPT = """
         th.setAttribute('aria-sort',asc?'ascending':'descending');
         sortTable(table,idx,asc);
       });
+    });
+  });
+  // Bestwert je Spalte grün markieren (data-best=min|max am th); überlebt Sortierung.
+  document.querySelectorAll('table').forEach(function(table){
+    var head=table.tHead, tb=table.tBodies[0]; if(!head||!head.rows.length||!tb) return;
+    Array.prototype.forEach.call(head.rows[0].cells,function(th,idx){
+      var dir=th.getAttribute('data-best'); if(dir!=='min'&&dir!=='max') return;
+      var best=null;
+      Array.prototype.forEach.call(tb.rows,function(r){var c=r.cells[idx];if(!c)return;var v=num(val(c));if(v===null)return;if(best===null||(dir==='min'?v<best:v>best))best=v;});
+      if(best===null)return;
+      Array.prototype.forEach.call(tb.rows,function(r){var c=r.cells[idx];if(!c)return;var v=num(val(c));if(v!==null&&v===best)c.classList.add('best');});
     });
   });
 })();
@@ -644,7 +671,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
 
     trs = "".join(f'<tr class="st-{st}">' + "".join(f"<td>{c}</td>" for c in cs) + "</tr>"
                   for st, cs in rows)
-    th = "".join(f"<th>{esc(h)}</th>" for h in header)
+    th = "".join(f"<th{best_attr(h)}>{esc(h)}</th>" for h in header)
     tbl = f"<table><thead><tr>{th}</tr></thead><tbody>{trs}</tbody></table>"
     counts = {}
     for st, _cs in rows:
