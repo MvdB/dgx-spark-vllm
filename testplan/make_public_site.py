@@ -547,7 +547,7 @@ def llm_chapter(data, cid, title, lead, card_title):
         rows.append(cells)
     best = data["rows"][0]
     sec = (f'<h2 id="{cid}">{esc(title)}</h2>\n'
-           f'<p>{lead} Lauf <code>{esc(data["run"])}</code> · {len(rows)} Modelle · Pass-Rate je Playbook. '
+           f'<p>{lead} {len(rows)} Modelle · Pass-Rate je Playbook. '
            f'<strong>Modellname anklicken</strong> → Detail (Prompt, Antwort, Judge je Fall). '
            f'<strong>Sicherheit (04) ausgeschlossen</strong>.</p>\n'
            f'<div style="overflow-x:auto">{table(header, rows)}</div>')
@@ -644,11 +644,10 @@ def llm_local_chapter(local, roster, reports, running_prof):
     for st, _cs in rows:
         counts[st] = counts.get(st, 0) + 1
     legend = " · ".join(f'{_STATUS_BADGE[s]} {counts[s]}' for s in _STATUS_RANK if counts.get(s))
-    run = esc(local["run"]) if local else "—"
     sec = (f'<h2 id="llm-local">LLM — Lokale Modelle (DGX Spark)</h2>\n'
            f'<p>Auf dem GB10 selbst serviert (vLLM), Judge-bewertet. <strong>Vollständiges '
            f'Kohorten-Roster</strong> — jedes geplante Modell mit Status, nicht nur die bestandenen. '
-           f'Lauf <code>{run}</code> · {len(rows)} Modelle ({legend}). '
+           f'{len(rows)} Modelle ({legend}). '
            f'<strong>Gültige Modelle anklicken</strong> → Detail (Prompt, Antwort, Judge je Fall). '
            f'<strong>Sicherheit (04) ausgeschlossen</strong>.</p>\n'
            f'<div style="overflow-x:auto">{tbl}</div>')
