@@ -192,6 +192,9 @@ CI_STYLE = """
  .grid-bg{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5;
    background-image:linear-gradient(rgba(0,230,118,.15) 1px,transparent 1px),
      linear-gradient(90deg,rgba(0,230,118,.15) 1px,transparent 1px);background-size:80px 80px}
+ @keyframes scanline{0%{transform:translateY(-100vh)}100%{transform:translateY(100vh)}}
+ .scanline{position:fixed;left:0;top:0;width:100%;height:80px;background:linear-gradient(to bottom,transparent,rgba(0,230,118,.03) 40%,rgba(0,230,118,.07) 50%,rgba(0,230,118,.03) 60%,transparent);pointer-events:none;z-index:0;animation:scanline 8s linear infinite;will-change:transform}
+ @media(prefers-reduced-motion:reduce){.scanline{display:none}}
  .wrap{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:2.5rem 1.25rem}
  .wordmark{font-family:var(--mono);font-weight:700;font-size:1.5rem;letter-spacing:1.4px;color:var(--text);text-decoration:none}
  .wordmark .dot{color:var(--green)}
@@ -323,7 +326,7 @@ def page_shell(title, inner, subtitle="", back="index.html") -> str:
     return (f'<!doctype html>\n<html lang="de"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">\n'
             f'<title>SOUTH.BYTE — {esc(title)}</title>\n{FAVICON}\n<style>{CI_STYLE}{SORT_CSS}</style></head>'
-            f'<body><div class="grid-bg"></div><div class="wrap">\n'
+            f'<body><div class="grid-bg"></div><div class="scanline"></div><div class="wrap">\n'
             f'<header><a class="wordmark" href="{home}">SOUTH<span class="dot">.</span>BYTE</a>'
             f'<div class="tagline">AI Governance &amp; IT-Beratung</div></header>\n'
             f'{backlink}\n<h1>{esc(title)}</h1>\n{sub}\n{inner}\n{_FOOTER}\n{SORT_SCRIPT}</div></body></html>')
