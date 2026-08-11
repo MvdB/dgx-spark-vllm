@@ -270,6 +270,9 @@ def slugify(s) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(s).lower()).strip("-")
 
 
+# SouthByte-Favicon (Brand-SVG als Data-URI): dunkles Rounded-Square, helles S + grüner Dot.
+FAVICON = '<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzBBMTQxMCIvPjx0ZXh0IHg9IjE0LjUiIHk9IjIyIiBmb250LWZhbWlseT0iQ291cmllciBOZXcsbW9ub3NwYWNlIiBmb250LXNpemU9IjE3IiBmb250LXdlaWdodD0iNzAwIiBmaWxsPSIjRDRFREUwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5TPC90ZXh0PjxjaXJjbGUgY3g9IjI0IiBjeT0iMjEiIHI9IjMiIGZpbGw9IiMwMEU2NzYiLz48L3N2Zz4=">'
+
 # Klick-Sortierung für alle Tabellen (vanilla JS, keine Abhängigkeiten).
 SORT_CSS = (
     " table th{cursor:pointer;user-select:none}"
@@ -319,7 +322,7 @@ def page_shell(title, inner, subtitle="", back="index.html") -> str:
     home = "../index.html" if back and back != "index.html" else "index.html"
     return (f'<!doctype html>\n<html lang="de"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">\n'
-            f'<title>SOUTH.BYTE — {esc(title)}</title>\n<style>{CI_STYLE}{SORT_CSS}</style></head>'
+            f'<title>SOUTH.BYTE — {esc(title)}</title>\n{FAVICON}\n<style>{CI_STYLE}{SORT_CSS}</style></head>'
             f'<body><div class="grid-bg"></div><div class="wrap">\n'
             f'<header><a class="wordmark" href="{home}">SOUTH<span class="dot">.</span>BYTE</a>'
             f'<div class="tagline">AI Governance &amp; IT-Beratung</div></header>\n'
