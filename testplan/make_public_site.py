@@ -195,7 +195,7 @@ CI_STYLE = """
  @keyframes scanline{0%{transform:translateY(-100vh)}100%{transform:translateY(100vh)}}
  .scanline{position:fixed;left:0;top:0;width:100%;height:80px;background:linear-gradient(to bottom,transparent,rgba(0,230,118,.03) 40%,rgba(0,230,118,.07) 50%,rgba(0,230,118,.03) 60%,transparent);pointer-events:none;z-index:0;animation:scanline 8s linear infinite;will-change:transform}
  @media(prefers-reduced-motion:reduce){.scanline{display:none}}
- .wrap{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:2.5rem 1.25rem}
+ .wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:2.5rem 1.25rem}
  .wordmark{font-family:var(--mono);font-weight:700;font-size:1.5rem;letter-spacing:1.4px;color:var(--text);text-decoration:none}
  .wordmark .dot{color:var(--green)}
  .tagline{font-family:var(--mono);font-size:.7rem;letter-spacing:.25em;text-transform:uppercase;color:var(--text-muted);margin-top:.3rem}
@@ -261,7 +261,16 @@ _BEST_DIR = {
     "Gesamt": "max", "Tok/s": "max", "Durchsatz": "max", "F1": "max", "Recall": "max",
     "Qualität": "max", "Deutsch": "max", "Bias": "max", "Code": "max", "Performance": "max",
     "HSF": "max", "Guardrails": "max", "Sicherheit": "max",
+    "Präz.": "max", "Acc": "max",
     "TTFT": "min", "FPR": "min", "Trap-FPR": "min",
+    "FN-Rate": "min", "Lat ø": "min", "Lat p95": "min",
+}
+
+# Kurz-Header für die (breite) Guard-Metrik-Tabelle, damit sie in .wrap passt.
+_GUARD_KEY_LABEL = {
+    "n_unsafe": "Unsafe", "n_safe": "Safe", "recall": "Recall", "fn_rate": "FN-Rate",
+    "fpr": "FPR", "trap_fpr": "Trap-FPR", "precision": "Präz.", "f1": "F1",
+    "accuracy": "Acc", "latency_ms_mean": "Lat ø", "latency_ms_p95": "Lat p95",
 }
 
 
@@ -298,6 +307,8 @@ SORT_CSS = (
     " table th[aria-sort=ascending]::after{content:' \\25B2';opacity:.9}"
     " table th[aria-sort=descending]::after{content:' \\25BC';opacity:.9}"
     " table td.best{font-weight:700;color:var(--green);background:var(--bg-raised)}"
+    " .gtbl table{font-size:.82rem}"
+    " .gtbl th,.gtbl td{padding:.35rem .45rem}"
 )
 SORT_SCRIPT = """
 <script>
@@ -691,10 +702,11 @@ def llm_local_chapter(local, roster, reports, running_prof):
 def guards_section(guards):
     if not guards:
         return "", card("Guards", "—", "kein Feldlauf")
+    hide = {"n_unsafe", "n_safe", "fn_rate"}  # konstant (Testset-Größe) bzw. redundant (=1−recall)
     keys = []
     for g in guards:
         for k in g["metrics"]:
-            if isinstance(g["metrics"][k], (int, float)) and k not in keys:
+            if k not in hide and isinstance(g["metrics"][k], (int, float)) and k not in keys:
                 keys.append(k)
 
     def glabel(g):
@@ -706,7 +718,8 @@ def guards_section(guards):
     sec = (f'<h2 id="guards">Guardrails (Playbook 08)</h2>\n'
            f'<p class="note">Guard-Name anklicken → Fall für Fall (Wahrheit vs. Vorhersage). '
            f'Kein Judge — das Label ist die Wahrheit.</p>\n'
-           f'<div style="overflow-x:auto">{table(["Guard"] + keys + ["K.O."], rows)}</div>')
+           f'<div class="gtbl" style="overflow-x:auto">'
+           f'{table(["Guard"] + [_GUARD_KEY_LABEL.get(k, k) for k in keys] + ["K.O."], rows)}</div>')
     c = card("Guards", f'{(best["metrics"].get("f1", 0) or 0):.3f}', f'bestes F1 · {best["label"]}', "#guards")
     return sec, c
 
