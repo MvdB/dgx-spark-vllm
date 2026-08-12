@@ -24,6 +24,39 @@ REPO = TESTPLAN.parent
 DOCS = Path(os.environ.get("DOCS_DIR", REPO / "docs"))
 REPORTS_DIR = Path(os.environ.get("REPORTS_DIR", TESTPLAN / "reports"))
 TESTDATA_DIR = Path(os.environ.get("TESTDATA_DIR", TESTPLAN / "testdata"))
+MODELS_YAML = Path(os.environ.get("MODELS_YAML", TESTPLAN / "config" / "models.yaml"))
+
+
+def _load_models() -> dict:
+    """Zentrale Modell-Metadaten (name → release_date/license/hf_repo) aus models.yaml.
+    Flach über alle Sektionen; Namen eindeutig (TTS-Keys = Engine-Repo)."""
+    out: dict = {}
+    try:
+        lines = MODELS_YAML.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    cur = None
+    for ln in lines:
+        m = re.match(r'\s*-\s*name:\s*"?([^"#\n]+?)"?\s*$', ln)
+        if m:
+            cur = {}
+            out[m.group(1).strip()] = cur
+            continue
+        f = re.match(r'\s+(hf_repo|release_date|license|provider):\s*"?([^"#\n]+?)"?\s*$', ln)
+        if f and cur is not None:
+            cur[f.group(1)] = f.group(2).strip()
+    return out
+
+
+_MODELS = _load_models()
+
+
+def release_date(name: str) -> str:
+    """Release-Zelle mit numerischem Sortier-Key (YYYYMM) — sonst liest der
+    Sortierer nur '2026' und ignoriert den Monat."""
+    d = str(_MODELS.get(name or "", {}).get("release_date", "") or "")
+    m = re.match(r"(\d{4})-(\d{2})", d)
+    return f'<span data-sort="{m.group(1)}{m.group(2)}">{esc(d)}</span>' if m else "—"
 GUARDS_DIR = Path(os.environ.get("GUARDS_DIR", TESTPLAN / "reports" / "guardrails"))
 
 HUB_URL = "https://results.southbyte.de/"
@@ -571,16 +604,19 @@ def llm_chapter(data, cid, title, lead, card_title):
     if not data or not data["rows"]:
         return "", card(card_title, "—", "keine Berichte")
     cols = [c for c in PLAYBOOK_LABELS if c != "06_performance"]
-    header = (["Modell", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
+    header = (["Modell", "Release", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
               + ["Tok/s", "TTFT", "Lizenz"])
     rows = []
     for r in data["rows"]:
         ov = r["overall"] or "—"
         ov_html = f'<span class="ko">{esc(ov)}</span>' if ov == "K.O." else esc(ov)
         url, lbl = model_repo(r["profile"], r["is_saas"])
+        if not url:  # SaaS ohne Anbieter-Link → HF-Card aus models.yaml (Kimi/MiniMax/DeepSeek/…)
+            hr = _MODELS.get(r["model"], {}).get("hf_repo")
+            url = ("https://huggingface.co/" + hr) if hr else url
         hf = f' <a href="{esc(url)}" title="Repo/Anbieter" target="_blank" rel="noopener">↗</a>' if url else ""
         link = f'<a href="m/{esc(r["stem"])}.html">{esc(r["model"])}</a>{hf}'
-        cells = [link, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
+        cells = [link, release_date(r["model"]), f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
         for c in cols:
             v = r["pb"].get(c)
             cells.append("—" if v is None else f"{round(float(v) * 100)}%")
@@ -609,7 +645,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
     erscheint (gültig / läuft / degraded / ausstehend / N/A) — nicht nur die
     bestandenen. Gültige Zeilen sind verlinkt und voll bewertet."""
     cols = [c for c in PLAYBOOK_LABELS if c != "06_performance"]
-    header = (["Modell", "Status", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
+    header = (["Modell", "Status", "Release", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
               + ["Tok/s", "TTFT", "Lizenz"])
     valid_by_name = {r["model"]: r for r in (local["rows"] if local else [])}
     entries, seen = [], set()
@@ -650,6 +686,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
         badge = f'<span class="badge {status}" data-sort="{_STATUS_RANK[status]}">{_STATUS_BADGE[status]}</span>'
         prof = m.get("profile", "") or (rep or {}).get("profile", "")
         lic = esc(model_license(prof, False))
+        rel = release_date(name)
         if status == "valid":
             n_valid += 1
             r = valid_by_name[name]
@@ -658,7 +695,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
             url, _l = model_repo(r["profile"], False)
             hf = f' <a href="{esc(url)}" title="Repo" target="_blank" rel="noopener">↗</a>' if url else ""
             link = f'<a href="m/{esc(r["stem"])}.html">{esc(name)}</a>{hf}'
-            cells = [link, badge, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
+            cells = [link, badge, rel, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
             for c in cols:
                 v = r["pb"].get(c)
                 cells.append("—" if v is None else f"{round(float(v) * 100)}%")
@@ -668,7 +705,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
             cells.append(lic)
         elif status == "degraded":
             gesamt = f'<span class="ko">{round(rep["err_rate"] * 100)}% Fehler</span>'
-            cells = [esc(name), badge, gesamt, str(rep.get("ko") or 0)]
+            cells = [esc(name), badge, rel, gesamt, str(rep.get("ko") or 0)]
             for c in cols:
                 v = rep["pb"].get(c)
                 cells.append("—" if v is None else f'<span class="note">{round(float(v) * 100)}%</span>')
@@ -677,7 +714,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
             cells.append(f'{p["ttft_p50"]:.0f} ms' if p.get("ttft_p50") is not None else "—")
             cells.append(lic)
         else:  # running / pending / na
-            cells = [esc(name), badge, "—", "—"] + dash + [lic]
+            cells = [esc(name), badge, rel, "—", "—"] + dash + [lic]
         rows.append((status, cells))
 
     trs = "".join(f'<tr class="st-{st}">' + "".join(f"<td>{c}</td>" for c in cs) + "</tr>"
@@ -709,17 +746,21 @@ def guards_section(guards):
             if k not in hide and isinstance(g["metrics"][k], (int, float)) and k not in keys:
                 keys.append(k)
 
+    _GN = {"granite-guardian": "Granite-Guardian-4.1-8B", "gpt-oss-safeguard": "gpt-oss-safeguard-20b",
+           "nemotron-3-5": "Nemotron-3.5-Content-Safety", "nemotron-3": "Nemotron-3-Content-Safety",
+           "shieldstral": "Shieldstral-1.0-3B"}
+
     def glabel(g):
         return (f'<a href="g/{esc(g["slug"])}.html">{esc(g["label"])}</a>'
                 if g.get("per_case") else esc(g["label"]))
-    rows = [[glabel(g)] + [num(g["metrics"].get(k)) for k in keys]
+    rows = [[glabel(g), release_date(_GN.get(g["slug"], ""))] + [num(g["metrics"].get(k)) for k in keys]
             + ["✓" if not g["knockouts"] else f'<span class="ko">K.O. {len(g["knockouts"])}</span>'] for g in guards]
     best = max(guards, key=lambda g: g["metrics"].get("f1", 0) or 0)
     sec = (f'<h2 id="guards">Guardrails (Playbook 08)</h2>\n'
            f'<p class="note">Guard-Name anklicken → Fall für Fall (Wahrheit vs. Vorhersage). '
            f'Kein Judge — das Label ist die Wahrheit.</p>\n'
            f'<div class="gtbl" style="overflow-x:auto">'
-           f'{table(["Guard"] + [_GUARD_KEY_LABEL.get(k, k) for k in keys] + ["K.O."], rows)}</div>')
+           f'{table(["Guard", "Release"] + [_GUARD_KEY_LABEL.get(k, k) for k in keys] + ["K.O."], rows)}</div>')
     c = card("Guards", f'{(best["metrics"].get("f1", 0) or 0):.3f}', f'bestes F1 · {best["label"]}', "#guards")
     return sec, c
 
