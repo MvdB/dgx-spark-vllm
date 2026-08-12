@@ -739,7 +739,9 @@ def llm_local_chapter(local, roster, reports, running_prof):
 def guards_section(guards):
     if not guards:
         return "", card("Guards", "—", "kein Feldlauf")
-    hide = {"n_unsafe", "n_safe", "fn_rate"}  # konstant (Testset-Größe) bzw. redundant (=1−recall)
+    # K.O. (bei Guards ohne Judge kaum unterscheidend) und Lat p95 (zu spezifisch,
+    # Lat ø reicht) fliegen zugunsten der Lizenz-Spalte raus.
+    hide = {"n_unsafe", "n_safe", "fn_rate", "latency_ms_p95"}
     keys = []
     for g in guards:
         for k in g["metrics"]:
@@ -753,14 +755,17 @@ def guards_section(guards):
     def glabel(g):
         return (f'<a href="g/{esc(g["slug"])}.html">{esc(g["label"])}</a>'
                 if g.get("per_case") else esc(g["label"]))
+
+    def glic(g):
+        return esc(_MODELS.get(_GN.get(g["slug"], ""), {}).get("license", "—") or "—")
     rows = [[glabel(g), release_date(_GN.get(g["slug"], ""))] + [num(g["metrics"].get(k)) for k in keys]
-            + ["✓" if not g["knockouts"] else f'<span class="ko">K.O. {len(g["knockouts"])}</span>'] for g in guards]
+            + [glic(g)] for g in guards]
     best = max(guards, key=lambda g: g["metrics"].get("f1", 0) or 0)
     sec = (f'<h2 id="guards">Guardrails (Playbook 08)</h2>\n'
            f'<p class="note">Guard-Name anklicken → Fall für Fall (Wahrheit vs. Vorhersage). '
            f'Kein Judge — das Label ist die Wahrheit.</p>\n'
            f'<div class="gtbl" style="overflow-x:auto">'
-           f'{table(["Guard", "Release"] + [_GUARD_KEY_LABEL.get(k, k) for k in keys] + ["K.O."], rows)}</div>')
+           f'{table(["Guard", "Release"] + [_GUARD_KEY_LABEL.get(k, k) for k in keys] + ["Lizenz"], rows)}</div>')
     c = card("Guards", f'{(best["metrics"].get("f1", 0) or 0):.3f}', f'bestes F1 · {best["label"]}', "#guards")
     return sec, c
 
