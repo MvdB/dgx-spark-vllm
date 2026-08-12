@@ -645,7 +645,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
     erscheint (gültig / läuft / degraded / ausstehend / N/A) — nicht nur die
     bestandenen. Gültige Zeilen sind verlinkt und voll bewertet."""
     cols = [c for c in PLAYBOOK_LABELS if c != "06_performance"]
-    header = (["Modell", "Status", "Release", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
+    header = (["Modell", "Release", "Gesamt", "K.O."] + [PLAYBOOK_LABELS[c] for c in cols]
               + ["Tok/s", "TTFT", "Lizenz"])
     valid_by_name = {r["model"]: r for r in (local["rows"] if local else [])}
     entries, seen = [], set()
@@ -695,7 +695,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
             url, _l = model_repo(r["profile"], False)
             hf = f' <a href="{esc(url)}" title="Repo" target="_blank" rel="noopener">↗</a>' if url else ""
             link = f'<a href="m/{esc(r["stem"])}.html">{esc(name)}</a>{hf}'
-            cells = [link, badge, rel, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
+            cells = [link, rel, f'{ov_html} {esc(r["pass_rate"])}%', str(r["ko"] or 0)]
             for c in cols:
                 v = r["pb"].get(c)
                 cells.append("—" if v is None else f"{round(float(v) * 100)}%")
@@ -705,7 +705,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
             cells.append(lic)
         elif status == "degraded":
             gesamt = f'<span class="ko">{round(rep["err_rate"] * 100)}% Fehler</span>'
-            cells = [esc(name), badge, rel, gesamt, str(rep.get("ko") or 0)]
+            cells = [esc(name), rel, gesamt, str(rep.get("ko") or 0)]
             for c in cols:
                 v = rep["pb"].get(c)
                 cells.append("—" if v is None else f'<span class="note">{round(float(v) * 100)}%</span>')
@@ -714,7 +714,7 @@ def llm_local_chapter(local, roster, reports, running_prof):
             cells.append(f'{p["ttft_p50"]:.0f} ms' if p.get("ttft_p50") is not None else "—")
             cells.append(lic)
         else:  # running / pending / na
-            cells = [esc(name), badge, rel, "—", "—"] + dash + [lic]
+            cells = [esc(name), rel, "—", "—"] + dash + [lic]
         rows.append((status, cells))
 
     trs = "".join(f'<tr class="st-{st}">' + "".join(f"<td>{c}</td>" for c in cs) + "</tr>"
