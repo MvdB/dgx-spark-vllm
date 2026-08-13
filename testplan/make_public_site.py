@@ -442,7 +442,9 @@ def _load_run_rows(files):
 # Kanonische lokale Kohorte: alle Nachzügler/Retries kopieren ihre frischen Reports
 # HIERHER zurück (COH in *_retry.sh). Maßgeblich ist diese Dir — nicht das neueste
 # (= partielles Retry-Dir → nur 3 valide) und nicht das größte (= alte Explorationsläufe).
-LOCAL_COHORT_RUN = "2026-08-08_1130"
+# Eine Kohorte fuer alle lokalen Modelle; Name traegt Jahr und Judge (siehe
+# KOHORTE.md im Verzeichnis). Einzellaeufe werden dorthin zurueckkopiert.
+LOCAL_COHORT_RUN = "2026-lokal-judge-claude-sonnet-5"
 
 
 def load_llm_runs():
