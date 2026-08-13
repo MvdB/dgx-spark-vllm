@@ -218,6 +218,7 @@ class BaseEvaluator(ABC):
         default_system_prompt: str = "",
         sampling: dict | None = None,
         chat_template_kwargs: dict | None = None,
+        extra_body: dict | None = None,
     ):
         self.target_client = target_client
         self.target_model = target_model
@@ -229,6 +230,9 @@ class BaseEvaluator(ABC):
         self.sampling = sampling or {}
         # An das Chat-Template durchgereichte Kwargs (z.B. enable_thinking/low_effort).
         self.chat_template_kwargs = chat_template_kwargs or {}
+        # Weitere vLLM-Request-Parameter ausserhalb der OpenAI-Signatur
+        # (z.B. skip_special_tokens, top_k) — pro Modell in testplan.yaml.
+        self.extra_body = extra_body or {}
         # True wenn die letzte query_target-Antwort auch nach Retry degeneriert war
         # (Token-Limit erschöpft, kein Content). Evaluatoren prüfen das Flag, bevor
         # sie eine leere Antwort als Verweigerung werten.
@@ -334,8 +338,13 @@ class BaseEvaluator(ABC):
         extra_kwargs: dict = {}
         if "top_p" in self.sampling:
             extra_kwargs["top_p"] = self.sampling["top_p"]
+        # extra_body sammelt beides: chat_template_kwargs und freie Request-Parameter.
+        # Zusammenfuehren statt ueberschreiben — ein Modell kann beides brauchen.
+        body: dict = dict(self.extra_body)
         if self.chat_template_kwargs:
-            extra_kwargs["extra_body"] = {"chat_template_kwargs": self.chat_template_kwargs}
+            body["chat_template_kwargs"] = self.chat_template_kwargs
+        if body:
+            extra_kwargs["extra_body"] = body
 
         # max_tokens an das Kontextfenster des Modells anpassen (verhindert HTTP 400
         # bei Modellen mit kleinem Kontext, z.B. Apertus max_model_len=4096).

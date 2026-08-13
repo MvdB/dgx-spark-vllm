@@ -60,6 +60,11 @@ class ModelConfig:
     sampling: dict = field(default_factory=dict)
     # Kwargs für das Chat-Template, z.B. {enable_thinking: true, low_effort: true}
     chat_template_kwargs: dict = field(default_factory=dict)
+    # Zusaetzliche vLLM-Request-Parameter ausserhalb der OpenAI-Signatur, z.B.
+    # {skip_special_tokens: false} oder {top_k: 20}. Wird mit chat_template_kwargs
+    # zu einem extra_body zusammengefuehrt. Aktuell nutzt es kein Modell — die
+    # Plumbing existiert, damit der naechste Sonderfall keine Codeaenderung braucht.
+    extra_body: dict = field(default_factory=dict)
     # Guard-Protokoll für Playbook 08 (granite|nemotron|safeguard|shieldstral).
     # Leer für normale Zielmodelle; gesetzt macht das Modell zum Guard-Klassifikator.
     guard_protocol: str = ""
@@ -203,6 +208,7 @@ class TestplanConfig:
                 params_b=m.get("params_b", 0),
                 sampling=m.get("sampling", {}) or {},
                 chat_template_kwargs=m.get("chat_template_kwargs", {}) or {},
+                extra_body=m.get("extra_body", {}) or {},
                 guard_protocol=m.get("guard_protocol", "") or "",
             )
             for m in raw["models"]

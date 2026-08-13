@@ -311,6 +311,7 @@ class TestplanOrchestrator:
                 default_system_prompt=default_system_prompt,
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
+                extra_body=model.extra_body,
             )
             # Qualitäts-Testfälle aus allen Subkategorien
             cases = self.loader.load_category("quality")
@@ -327,6 +328,7 @@ class TestplanOrchestrator:
                 default_system_prompt=default_system_prompt,
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
+                extra_body=model.extra_body,
             )
             # Dedizierte deutsche Sprachtests
             cases = self.loader.load_category("german_language")
@@ -348,6 +350,7 @@ class TestplanOrchestrator:
                 default_system_prompt=default_system_prompt,
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
+                extra_body=model.extra_body,
             )
             cases = self.loader.load_category("bias")
             results = evaluator.evaluate_batch(cases)
@@ -382,6 +385,7 @@ class TestplanOrchestrator:
                 default_system_prompt=default_system_prompt,
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
+                extra_body=model.extra_body,
             )
             cases = self.loader.load_category("security")
             results = evaluator.evaluate_batch(cases)
@@ -395,6 +399,7 @@ class TestplanOrchestrator:
                 default_system_prompt=default_system_prompt,
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
+                extra_body=model.extra_body,
             )
             cases = self.loader.load_category("code")
             results = evaluator.evaluate_batch(cases)
@@ -460,6 +465,7 @@ class TestplanOrchestrator:
                 default_system_prompt="",   # Guard-Modelle bringen ihr eigenes Format mit
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
+                extra_body=model.extra_body,
                 guard_protocol=protocol,
                 threshold=th.guard_shieldstral_threshold,
                 reasoning_effort=th.guard_safeguard_reasoning_effort,
