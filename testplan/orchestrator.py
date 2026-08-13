@@ -131,9 +131,14 @@ class TestplanOrchestrator:
                 logger.warning("  - %s", e)
 
         try:
-            # Judge starten (falls nicht --endpoint Modus)
+            # Judge starten. --endpoint ersetzt nur das ZIEL-Modell, nicht den
+            # Judge: ein externer Judge (api_key gesetzt) wird trotzdem
+            # angebunden, ensure_judge_running startet dafuer nichts per SSH.
+            # Vorher blieb judge_instance in --endpoint-Modus immer None, womit
+            # jeder bewertete Testfall mit "Kein Judge-Modell konfiguriert"
+            # scheiterte — der Lauf lief durch, produzierte aber nur Fehler.
             judge_instance = None
-            if not self.args.endpoint:
+            if not self.args.endpoint or self.config.judge.api_key:
                 judge_instance = self.controller.ensure_judge_running(self.config.judge)
 
             exit_code = 0
