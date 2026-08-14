@@ -81,10 +81,29 @@ def _classify_response(content: str | None, thinking: str, degenerate: bool = Fa
     return "answer"
 
 
+class JudgeUnparseableError(RuntimeError):
+    """Der Judge hat keine verwertbare Antwort geliefert.
+
+    Wird bewusst geworfen statt einen Ersatzwert zurueckzugeben: evaluate_batch
+    faengt Exceptions und erzeugt daraus ein EvalResult mit Verdict.ERROR. So
+    ist ein ausgefallener Judge im Report sichtbar, statt als bewerteter Fall
+    zu erscheinen.
+
+    Vorgeschichte: bis 2026-08-14 lieferte parse_json_response bei nicht
+    parsebarer Antwort den default_score 3.0 zurueck. Normalisiert sind das
+    exakt 0.6 — und die K.O.-Schwelle fuer Halluzination liegt bei score < 0.6.
+    Ein Judge-Ausfall erzeugte damit systematisch ein knappes Bestehen, in 46
+    von 2058 Faellen der Kohorte. Ursache war fast immer das damalige
+    max_tokens=1024 in query_judge: der Judge wurde mitten im JSON abgeschnitten.
+    """
+
+
 def parse_json_response(text: str, default_score: float = 3.0) -> tuple[float, str]:
     """Parse eine JSON-Antwort des Judges — robust gegen Markdown-Code-Blöcke.
 
     Gibt (score, reasoning) zurück. Score ist roh (nicht normalisiert).
+    Wirft JudgeUnparseableError, wenn sich nichts Verwertbares extrahieren
+    laesst — siehe dort zur Begruendung.
     """
     import json
     import re
@@ -117,8 +136,10 @@ def parse_json_response(text: str, default_score: float = 3.0) -> tuple[float, s
     if score_match:
         return float(score_match.group(1)), text[:200]
 
-    logger.warning("Judge-Antwort nicht parsebar: %s", text[:200])
-    return default_score, f"Parse-Fehler: {text[:200]}"
+    logger.warning("Judge-Antwort nicht parsebar (%d Zeichen): %s", len(text), text[:200])
+    raise JudgeUnparseableError(
+        f"Judge-Antwort nicht parsebar ({len(text)} Zeichen): {text[:200]!r}"
+    )
 
 
 class Verdict(Enum):
@@ -219,6 +240,7 @@ class BaseEvaluator(ABC):
         sampling: dict | None = None,
         chat_template_kwargs: dict | None = None,
         extra_body: dict | None = None,
+        omit_sampling: list[str] | None = None,
     ):
         self.target_client = target_client
         self.target_model = target_model
@@ -233,6 +255,14 @@ class BaseEvaluator(ABC):
         # Weitere vLLM-Request-Parameter ausserhalb der OpenAI-Signatur
         # (z.B. skip_special_tokens, top_k) — pro Modell in testplan.yaml.
         self.extra_body = extra_body or {}
+        # Sampling-Parameter, die dieses Modell NICHT vertraegt und die deshalb
+        # gar nicht erst gesendet werden. Hintergrund: vLLM lehnt fuer
+        # Diffusionsmodelle temperature, min_p, seed, min_tokens, logit_bias,
+        # bad_words und allowed_token_ids mit HTTP 400 ab. Der Harness sendet
+        # temperature sonst bei jedem Request — DiffusionGemma-26B-A4B ist
+        # daran am 2026-08-08 mit 97 von 98 Faellen gescheitert, ohne dass der
+        # Lauf abgebrochen waere.
+        self.omit_sampling = set(omit_sampling or ())
         # True wenn die letzte query_target-Antwort auch nach Retry degeneriert war
         # (Token-Limit erschöpft, kein Content). Evaluatoren prüfen das Flag, bevor
         # sie eine leere Antwort als Verweigerung werten.
@@ -336,7 +366,11 @@ class BaseEvaluator(ABC):
         # an das Jinja-Template durch; Templates ohne diese Variablen ignorieren sie.
         temperature = self.sampling.get("temperature", temperature)
         extra_kwargs: dict = {}
-        if "top_p" in self.sampling:
+        # temperature nur senden, wenn das Modell sie vertraegt (siehe
+        # omit_sampling). Diffusionsmodelle lehnen sie mit HTTP 400 ab.
+        temp_kwargs: dict = ({} if "temperature" in self.omit_sampling
+                             else {"temperature": temperature})
+        if "top_p" in self.sampling and "top_p" not in self.omit_sampling:
             extra_kwargs["top_p"] = self.sampling["top_p"]
         # extra_body sammelt beides: chat_template_kwargs und freie Request-Parameter.
         # Zusammenfuehren statt ueberschreiben — ein Modell kann beides brauchen.
@@ -357,8 +391,8 @@ class BaseEvaluator(ABC):
                 model=self.target_model,
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=temperature,
                 timeout=timeout,
+                **temp_kwargs,
                 **extra_kwargs,
             )
         except APIStatusError as e:
@@ -377,8 +411,8 @@ class BaseEvaluator(ABC):
                         model=self.target_model,
                         messages=clean_messages,
                         max_tokens=max_tokens,
-                        temperature=temperature,
                         timeout=timeout,
+                        **temp_kwargs,
                         **extra_kwargs,
                     )
                 except Exception as retry_e:
@@ -468,7 +502,13 @@ class BaseEvaluator(ABC):
         self,
         prompt: str,
         system_prompt: str = "",
-        max_tokens: int = 1024,
+        # 8192 statt 1024: der Judge soll strukturiert antworten (score,
+        # reasoning, teils Listen). Mit 1024 wurde er regelmaessig mitten im
+        # JSON abgeschnitten (finish_reason=length) — reproduziert am
+        # 2026-08-14 fuer inst-004. Bewusst eine harte Grenze und nicht
+        # "unbegrenzt": wird auch 8192 gerissen, ist das ein echtes Signal und
+        # soll als Fehler auffallen, statt still weiter gedehnt zu werden.
+        max_tokens: int = 8192,
         temperature: float = 0.0,
     ) -> str:
         """Sende Anfrage an das Judge-Modell."""

@@ -65,6 +65,10 @@ class ModelConfig:
     # zu einem extra_body zusammengefuehrt. Aktuell nutzt es kein Modell — die
     # Plumbing existiert, damit der naechste Sonderfall keine Codeaenderung braucht.
     extra_body: dict = field(default_factory=dict)
+    # Sampling-Parameter, die dieses Modell nicht vertraegt und die deshalb
+    # nicht gesendet werden, z.B. ["temperature"] fuer Diffusionsmodelle —
+    # vLLM lehnt sie dort mit HTTP 400 ab.
+    omit_sampling: list = field(default_factory=list)
     # Guard-Protokoll für Playbook 08 (granite|nemotron|safeguard|shieldstral).
     # Leer für normale Zielmodelle; gesetzt macht das Modell zum Guard-Klassifikator.
     guard_protocol: str = ""
@@ -209,6 +213,7 @@ class TestplanConfig:
                 sampling=m.get("sampling", {}) or {},
                 chat_template_kwargs=m.get("chat_template_kwargs", {}) or {},
                 extra_body=m.get("extra_body", {}) or {},
+                omit_sampling=m.get("omit_sampling", []) or [],
                 guard_protocol=m.get("guard_protocol", "") or "",
             )
             for m in raw["models"]

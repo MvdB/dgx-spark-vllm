@@ -317,6 +317,7 @@ class TestplanOrchestrator:
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
                 extra_body=model.extra_body,
+                omit_sampling=model.omit_sampling,
             )
             # Qualitäts-Testfälle aus allen Subkategorien
             cases = self.loader.load_category("quality")
@@ -334,6 +335,7 @@ class TestplanOrchestrator:
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
                 extra_body=model.extra_body,
+                omit_sampling=model.omit_sampling,
             )
             # Dedizierte deutsche Sprachtests
             cases = self.loader.load_category("german_language")
@@ -356,6 +358,7 @@ class TestplanOrchestrator:
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
                 extra_body=model.extra_body,
+                omit_sampling=model.omit_sampling,
             )
             cases = self.loader.load_category("bias")
             results = evaluator.evaluate_batch(cases)
@@ -391,6 +394,7 @@ class TestplanOrchestrator:
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
                 extra_body=model.extra_body,
+                omit_sampling=model.omit_sampling,
             )
             cases = self.loader.load_category("security")
             results = evaluator.evaluate_batch(cases)
@@ -405,6 +409,7 @@ class TestplanOrchestrator:
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
                 extra_body=model.extra_body,
+                omit_sampling=model.omit_sampling,
             )
             cases = self.loader.load_category("code")
             results = evaluator.evaluate_batch(cases)
@@ -471,6 +476,7 @@ class TestplanOrchestrator:
                 sampling=model.sampling,
                 chat_template_kwargs=model.chat_template_kwargs,
                 extra_body=model.extra_body,
+                omit_sampling=model.omit_sampling,
                 guard_protocol=protocol,
                 threshold=th.guard_shieldstral_threshold,
                 reasoning_effort=th.guard_safeguard_reasoning_effort,

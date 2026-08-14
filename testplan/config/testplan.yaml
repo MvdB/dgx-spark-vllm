@@ -120,11 +120,12 @@ models:
     profile: "google--diffusiongemma-26B-A4B-it"
     machine: "machine_a"
     tags: ["cohort_b", "moe", "instruct", "diffusion"]
+    # vLLM lehnt diese Parameter fuer Diffusionsmodelle mit HTTP 400 ab.
+    omit_sampling: ["temperature"]
     active: false
-    notes: "N/A 2026-08-10: Diffusions-LM (kein autoregressives Chat-Modell) → 99% error, inkompatibel mit Judge-Eval. Retry morgen evtl., aber arch-bedingt unwahrscheinlich."
+    notes: "Block-Diffusions-LLM (DiffusionGemmaForBlockDiffusion), gleiches MoE-Backbone wie Gemma-4-26B-A4B. Eigener Entropy-Bound-Sampler aus generation_config.json; kein MTP moeglich. Nativ in vLLM v0.24.0. 2026-08-14 URSACHE DES AUSFALLS GEKLAERT: der Lauf vom 08.08. hatte 97 von 98 Faellen mit HTTP 400 - vLLM lehnt fuer Diffusionsmodelle die Sampling-Parameter temperature, min_p, seed, min_tokens, logit_bias, bad_words und allowed_token_ids ab, der Harness sendet temperature aber bei jedem Request. Nicht das Modell war inkompatibel, sondern der Aufruf. Behoben ueber omit_sampling in dieser Datei. (Die Diagnose vom 2026-08-10 - 'arch-bedingt unwahrscheinlich' - stand in einem doppelten notes-Feld und wurde von YAML still verworfen.)"
     params_b: 26
     system_prompt: *default_system_prompt
-    notes: "Block-Diffusions-LLM (DiffusionGemmaForBlockDiffusion), gleiches MoE-Backbone wie Gemma-4-26B-A4B. Eigener Entropy-Bound-Sampler aus generation_config.json; kein MTP möglich. Nativ in vLLM v0.24.0."
 
   - name: "Gemma-4-31B"
     profile: "google--gemma-4-31B-it"
@@ -475,10 +476,9 @@ models:
     machine: "machine_b"
     tags: ["cohort_h", "instruct", "medium", "glm", "moe", "mla"]
     active: false
-    notes: "N/A 2026-08-10: MLA-Decode-Kernel braucht 100KB Shared-Mem, sm_120 hat nur 99KB (Triton OutOfResources bei 1. Inferenz). Retry morgen evtl. (neueres Image / VLLM_MLA_DISABLE)."
+    notes: "2026-08-14 ABGESCHLOSSEN, nicht wieder aktivieren: Modell ist aus der LocalCache-Collection entfernt und liegt nicht mehr im Modellspeicher, eine Nachmessung ist damit unmoeglich. Der Report vom Lauf 2026-08-08 enthielt 97 von 98 Faellen mit Connection error - keine verwertbare Zahl - und wurde aus der Kohorte nach ~/southbyte/_retired/glm-4.7-flash-report-2026-08-14/ verschoben. Urspruengliche Diagnose 2026-08-10: MLA-Decode-Kernel braucht 100KB Shared-Mem, sm_120 hat nur 99KB (Triton OutOfResources bei erster Inferenz); ein Retry mit neuerem Image oder VLLM_MLA_DISABLE waere der Ansatz gewesen."
     params_b: 30
     system_prompt: *default_system_prompt
-    notes: "zai-org GLM-4.7-Flash, Glm4MoeLiteForCausalLM (MLA), ctx 200k→65k konservativ. v0.23.0. Smoke OK mit VLLM_MLA_DISABLE=1 — der Triton-MLA-Decode-Kernel sprengt das sm_120-Shared-Memory-Limit (Required 102400 > 101376), FlashInfer-MLA cc-unsupported. Reasoner: Thinking erscheint im content (kein GLM-Parser gesetzt). params_b≈30 grob."
 
   # --- Guardrails: Guard-Modelle (Playbook 08). guard_protocol waehlt den
   #     Adapter. Serving 2026-08-06 auf GB10 validiert (v0.25.1). Nur mit
