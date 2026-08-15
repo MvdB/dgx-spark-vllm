@@ -202,7 +202,32 @@ class TestplanOrchestrator:
 
         try:
             # Modell starten (oder externen Endpoint nutzen)
-            if self.args.endpoint:
+            if model.machine == "saas":
+                # SaaS-Modelle laufen nicht auf unserer Hardware, sondern ueber
+                # denselben LiteLLM-Proxy wie der Judge. Kein Start, kein
+                # Herunterfahren, keine GPU — nur eine andere Basis-URL.
+                #
+                # Die Modell-ID wird NICHT vom Endpoint erfragt wie sonst: der
+                # Proxy bedient Dutzende Modelle, und models.list()[0] waere ein
+                # beliebiges davon. Sie steht im Profil, und dass sie dort
+                # wirklich angeboten wird, wird vorher geprueft — ein Tippfehler
+                # soll hier scheitern und nicht als Ergebnis eines fremden
+                # Modells durchgehen.
+                from openai import OpenAI
+                target_client = OpenAI(
+                    base_url=self.config.judge.api_url,
+                    api_key=self.config.judge.api_key or "not-needed",
+                )
+                verfuegbar = {m.id for m in target_client.models.list().data}
+                if model.profile not in verfuegbar:
+                    logger.error(
+                        "Proxy kennt '%s' nicht (%d Modelle verfuegbar). Abbruch fuer %s.",
+                        model.profile, len(verfuegbar), model.name,
+                    )
+                    return 2
+                target_model = model.profile
+                logger.info("SaaS-Modus: %s ueber %s", target_model, self.config.judge.base_url)
+            elif self.args.endpoint:
                 from openai import OpenAI
                 target_client = OpenAI(
                     base_url=f"{self.args.endpoint}/v1",
@@ -415,10 +440,28 @@ class TestplanOrchestrator:
             results = evaluator.evaluate_batch(cases)
 
         elif playbook_name == "06_performance":
+            # Der Performance-Evaluator baut sich seine eigene Verbindung, statt
+            # den target_client zu benutzen — er misst mit rohem Streaming, um
+            # TTFT ueberhaupt sehen zu koennen. Deshalb muss ihm die Adresse
+            # getrennt mitgegeben werden, und im SaaS-Fall ist das der Proxy und
+            # nicht die Zielmaschine.
+            #
+            # Ohne diese Unterscheidung zeigte der Evaluator bei SaaS-Modellen auf
+            # http://localhost:8000 — auf dieser Maschine antwortet dort ein ganz
+            # anderer Dienst. Herausgekommen sind 50 Messungen, 19 Fehler und
+            # ueberall Nullen: 0 ms TTFT, 0 tok/s. Ein Bericht voller sauberer
+            # Nullen sieht aus wie ein Messergebnis und ist keines.
+            if model.machine == "saas":
+                perf_url = self.config.judge.base_url
+                perf_key = self.config.judge.api_key
+            else:
+                perf_url = (f"http://{self.config.target.host}:{self.config.target.port}"
+                            if not self.args.endpoint else self.args.endpoint)
+                perf_key = ""
             perf = PerformanceEvaluator(
-                base_url=f"http://{self.config.target.host}:{self.config.target.port}"
-                if not self.args.endpoint else self.args.endpoint,
+                base_url=perf_url,
                 model=target_model,
+                api_key=perf_key,
             )
             report = asyncio.run(perf.run_benchmark())
             violations = perf.check_thresholds(

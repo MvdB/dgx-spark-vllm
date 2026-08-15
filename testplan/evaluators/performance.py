@@ -119,10 +119,15 @@ PERF_PROMPTS = {
 class PerformanceEvaluator:
     """Misst Performance-Metriken via Streaming-API."""
 
-    def __init__(self, base_url: str, model: str):
+    def __init__(self, base_url: str, model: str, api_key: str = ""):
         self.base_url = base_url
         self.model = model
         self.api_url = f"{base_url}/v1/chat/completions"
+        # Ein lokaler vLLM braucht keinen Schluessel, ein LiteLLM-Proxy schon.
+        # Ohne ihn beantwortet der Proxy jede Anfrage mit 401, und der Bericht
+        # zeigt saubere Nullen statt eines Fehlers — genau die Sorte Messwert,
+        # die man fuer bare Muenze nimmt.
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     async def measure_single(
         self,
@@ -149,6 +154,7 @@ class PerformanceEvaluator:
                 async with session.post(
                     self.api_url,
                     json=payload,
+                    headers=self.headers,
                     timeout=aiohttp.ClientTimeout(total=300),
                 ) as resp:
                     if resp.status != 200:

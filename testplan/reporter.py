@@ -634,6 +634,12 @@ class ReportGenerator:
                     "hallucination_rate": self.config.thresholds.hallucination_rate,
                     "factual_accuracy_target": self.config.thresholds.factual_accuracy_target,
                 },
+                # Herkunft mitschreiben, weil sie die Zahlen anders lesbar macht:
+                # tok/s und TTFT messen bei SaaS Cloud und Netzweg, nicht unsere
+                # Hardware. make_public_site und build_site trennen die Kohorten
+                # genau daran, und repair_cases entscheidet daran, wohin es sich
+                # zum Nachtesten verbindet.
+                **({"source": "saas_proxy"} if model.machine == "saas" else {}),
             },
             "summary": self._model_summary(pb_results),
             "playbooks": {},
