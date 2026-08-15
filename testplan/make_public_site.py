@@ -488,6 +488,14 @@ def load_roster():
         if not mp:  # nur echte Modell-Einträge (haben ein profile:) — keine Playbooks
             continue
         profile = mp.group(1).strip().strip("\"'")
+        # SaaS-Modelle gehoeren nicht in dieses Roster. Es zeigt die lokale
+        # Kohorte auf dem GB10 mit Status je Modell; ein Modell, das ueber einen
+        # Proxy laeuft, hat dort keinen Platz und erschien als Zeile aus lauter
+        # Strichen — es gibt ja keinen lokalen Bericht dazu. Aufgefallen, als
+        # Grok-4.6 als erstes SaaS-Modell in testplan.yaml stand.
+        mm = re.search(r'\n\s*machine:\s*"?(\w+)"?', b)
+        if mm and mm.group(1) == "saas":
+            continue
         ma = re.search(r"\n\s*active:\s*(true|false)", b)
         active = (ma.group(1) == "true") if ma else True
         mn = re.search(r'\n\s*notes:\s*"?(.*)', b)
