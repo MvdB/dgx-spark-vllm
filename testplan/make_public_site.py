@@ -160,7 +160,12 @@ EXCLUDE_PLAYBOOKS = {"04_security"}
 # Modelle, die trotz evtl. vorhandenem Report NIE publiziert werden (z.B. gehören in
 # eine andere Collection). Der laufende Orchestrator hat seine Liste beim Start
 # gesnapshottet, testet Qwen-AgentWorld also noch — der Report wird hier gefiltert.
-_EXCLUDE_MODELS = {"Qwen-AgentWorld-35B-A3B"}
+_EXCLUDE_MODELS = {
+    "Qwen-AgentWorld-35B-A3B",
+    "DiffusionGemma-26B-A4B",
+    "Mistral-Medium-3.5-128B-NVFP4",
+    "Nemotron-3-Nano-Omni-30B",
+}
 PLAYBOOK_LABELS = {
     "01_quality": "Qualität", "02_german_language": "Deutsch", "03_bias": "Bias",
     "05_code": "Code", "06_performance": "Performance",
@@ -488,6 +493,12 @@ def load_roster():
         mn = re.search(r'\n\s*notes:\s*"?(.*)', b)
         note = mn.group(1) if mn else ""
         na = (not active) and bool(re.search(r"\bN/?A\b", name + " " + note))
+        # Auch hier filtern, nicht nur bei den Laufergebnissen. Das Roster zeigt
+        # bewusst jedes geplante Modell mit Status — ein aussortiertes Modell
+        # bliebe sonst als Zeile mit lauter Strichen stehen, obwohl es niemand
+        # mehr testen wird.
+        if name in _EXCLUDE_MODELS:
+            continue
         out.append({"name": name, "profile": profile, "active": active, "na": na})
     return out
 
