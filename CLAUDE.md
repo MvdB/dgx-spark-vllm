@@ -109,7 +109,7 @@ Central config: `testplan/config/testplan.yaml` — defines infrastructure (judg
 
 **Playbooks** (`playbooks/*.yaml`): Contain German judge system prompts, Jinja2 user templates, scoring rules, K.O. criteria, and testdata subcategory mappings.
 
-**Testdata** (`testdata/*.jsonl`): JSONL format with schema in `testdata/schema.json`. 76 test cases across 7 categories. Expected answers support types: exact, contains, regex, semantic, code_exec, judge.
+**Testdata** (`testdata/*.jsonl`): JSONL format, schema in `testdata/schema.json`. 230 cases across 9 category directories; the loader globs `<category>/*.jsonl`, so the `files:` lists in the playbooks are documentation, not selection. Expected answers support types: exact, contains, regex, semantic, code_exec, judge. The schema has drifted — 72 cases do not match its `id` pattern and 36 use a category outside its enum; nothing validates against it today.
 
 **Dashboard** (`dashboard.py`): Cross-model comparison HTML with executive summary cards, pass-rate/score matrices, performance comparison, runtime estimation, drill-down per model, and compliance sections. Also provides `estimate_full_runtime()` for predicting test duration.
 
