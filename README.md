@@ -1,276 +1,146 @@
 # southbyte-vllm
 
-Tooling for running [vLLM](https://github.com/vllm-project/vllm) on the
-**NVIDIA DGX Spark** (GB10 SoC, 128 GB unified memory), plus an automated
-LLM evaluation framework.
+Two things for LLMs on an **NVIDIA DGX Spark**: a runner that serves any model
+from the local store with parameters tuned for the GB10, and an evaluation
+framework that decides whether a model is fit to use.
 
-Shared infrastructure (HuggingFace collection mirror, common tooling) lives in
-[southbyte-core](https://github.com/MvdB/southbyte-core).
+**→ [The evaluations](https://mvdb.github.io/southbyte-vllm/)** — 21 locally
+served models, a 27-model SaaS reference cohort, and the guardrail models, each
+with a per-model detail page.
 
-## Repository structure
+> **Proof of concept, not a product.** No guaranteed availability, fitness or
+> output quality, no support, no roadmap.
 
-```
-southbyte-vllm/
-├── runner/                    # vLLM container runner
-│   ├── vllm_spark.sh          #   interactive model picker + server start
-│   └── vllm_spark_profiler.py #   auto-generates per-model vLLM profiles
-├── testplan/                  # Automated LLM evaluation framework
-│   ├── orchestrator.py        #   end-to-end test runner
-│   ├── dashboard.py           #   cross-model comparison dashboard
-│   ├── config/testplan.yaml   #   central config (models, thresholds, playbooks)
-│   ├── evaluators/            #   quality, bias, security, code, performance, guard
-│   ├── playbooks/             #   8 test playbooks with judge prompts
-    └── testdata/              #   JSONL test cases (76 across 7 categories)
-```
+## What it does
 
-> The curated per-model `vllm_profile.conf` files and the `custom/` sm_120-kernel
-> Dockerfiles now live in the sibling repo
-> [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles).
+**`runner/` serves a model.** Point it at `~/hf_models/`, pick a model, get a
+vLLM server on port 8000. Every model directory carries a `vllm_profile.conf`
+with the parameters that work for it on this hardware — context length, KV-cache
+budget, quantization backend, attention backend, parsers, and for a few models a
+custom Docker image with sm_120 kernels. Profiles are generated automatically and
+hand-corrected where measurement disagreed with the heuristic.
 
----
+**`testplan/` decides whether to use it.** Eight playbooks over 76 German test
+cases: answer quality, German language quality, demographic bias (paired testing
+with a Chi² significance test), security (prompt injection, PII leakage,
+jailbreak), code generation with SAST, throughput and latency, hardware scaling,
+and guardrail models. A second Spark runs a static judge so the model under test
+never grades itself.
 
-## runner – vLLM on DGX Spark
+Some models are disqualified outright — **K.O. criteria**: hallucination rate
+above 5 %, any PII leakage, critical SAST findings, statistically significant
+bias, or a successful prompt injection.
 
-### Requirements
+Published so far, with everything but the security playbook:
 
-- Docker with GPU support (`--gpus all`)
-- `python3` in PATH
-- Local model directory (default `~/hf_models/`, populated by
-  [southbyte-sync](https://github.com/MvdB/southbyte-sync))
+| Cohort | |
+|---|---|
+| Local, on the GB10 | 21 models — 18 valid, 1 degraded, 2 not applicable. Leader: Muse-Glimmer-30B-NVFP4 at 86 % |
+| SaaS reference | 27 frontier models through one LiteLLM endpoint, same test set. Leader: Claude-Sonnet-5 at 91 % |
+| Guardrails | Scored against labelled data, no judge — the label is the truth |
 
-### Quickstart
+The roster is published **complete**, including the models that failed or never
+ran. A comparison that only shows the winners is not a comparison.
+
+Two smaller pieces live here too: `openwebui/` (Open-WebUI integrations,
+including STT with speaker diarization) and `stt-webui/` (a single-file
+transcription interface that talks to vLLM directly, no backend).
+
+## Getting it running
+
+You need Docker with GPU access, `python3`, and the models in `~/hf_models/`
+(populated by [southbyte-sync](https://github.com/MvdB/southbyte-sync)).
 
 ```bash
+# Serve a model
 cd runner
-
-# 1. Generate parameter profiles for all local models (once)
-./vllm_spark.sh --gen-profiles
-
-# 2. Start the server – interactive menu
-./vllm_spark.sh
-
-# 3. Or pick a model directly
+./vllm_spark.sh --gen-profiles          # once: write a profile per local model
+./vllm_spark.sh                          # interactive picker
 ./vllm_spark.sh --model qwen3.5-9b --tail
+
+# Evaluate models
+cd ../testplan && pip install -e .
+python orchestrator.py --dry-run         # show the plan, run nothing
+python orchestrator.py                   # all active models, all playbooks
+python orchestrator.py --models "Ministral3-14B" --playbooks 01_quality
+python orchestrator.py --endpoint http://localhost:8000   # against a running server
+python generate_demo_report.py           # a report from simulated data, to see the shape
 ```
 
-### How it works
+Nothing is downloaded at serve time — the model store is mounted read-only.
 
-1. `vllm_spark.sh` scans `~/hf_models/` for model directories.
-2. For each directory it loads (or generates) a `vllm_profile.conf` – a
-   bash-sourceable file with optimal vLLM parameters for that model.
-3. The selected model is mounted read-only into the container at `/hf_models/`
-   and served via `vllm serve <local-path> <profile-flags>`.
+The profile system, all `PROFILE_*` fields, environment variables and the custom
+images: [`docs/runner.md`](docs/runner.md). The evaluation framework in full:
+[`testplan/README.md`](testplan/README.md).
 
-No model data is downloaded at serve time – everything comes from the local store.
+## What to watch out for
 
-### Profile files
+**The profile is the whole trick.** A model that will not start is almost always
+a profile problem, not a vLLM problem. Curated, hand-validated profiles for every
+tested model are in
+[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) under
+`vllm/profiles/` — copy the subdirectory to `~/hf_models/<model>/` and skip
+auto-generation. That repo, not this README, is the authoritative list of what
+has been made to work.
 
-`vllm_spark_profiler.py` reads each model's `config.json` (or `params.json` for
-Mistral native format) and writes a `vllm_profile.conf` alongside it.
-The file is human-editable; run `--regen-profile` to reset to auto-calculated values.
+**Some models need a custom image.** The stock `vllm/vllm-openai` releases lack
+sm_120 kernels for a few quantizations. `PROFILE_DOCKER_IMAGE` points at a locally
+built tag; the Dockerfiles are in southbyte-spark-profiles under `vllm/custom/`
+and **must be built before first use**.
 
-```bash
-# Regenerate profile for one model
-./vllm_spark.sh --model ministral-8b --regen-profile
+**The evaluation wants two Sparks.** The judge model stays up on one machine
+across the whole run, the targets rotate on the other. One machine works for
+single playbooks against an already-running endpoint, but not for a full run.
 
-# Force-regenerate directly
-python3 vllm_spark_profiler.py ~/hf_models/mistralai--Ministral-3-8B-Instruct-2512 --force
-```
+**Reports never leave the machine.** `testplan/reports/` and `reports-archive/`
+are gitignored. What is published is curated: per-playbook pass rates only, model
+paths stripped to bare names, and the **`04_security` playbook and all raw
+per-case transcripts are never emitted**. Markdown is the primary report format —
+diffable, and archivable as approval documentation.
 
-Curated profiles for all tested models are in
-[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles)
-(`vllm/profiles/`) — copy the relevant subdirectory to `~/hf_models/<model>/`
-to skip auto-generation.
+**Per-model reports are written as each model finishes**, so an aborted or
+timed-out run still leaves usable results behind.
 
-Key parameters tuned per model (targeting 85–92 % of 128 GB, 2–4 parallel users):
+## Licence
 
-| Parameter | Description |
+MIT — see [LICENSE](LICENSE).
+
+Model licences travel with the models, not with this repository. The published
+comparison names the licence per model; check it before using output for anything
+beyond experimentation.
+
+## Where this is going
+
+The runner and the evaluation both work, and the results are published. What is
+open is named rather than planned:
+
+- **The test set is 76 cases across 7 categories.** That is enough to disqualify
+  a model and not enough to rank two good ones apart. Treat close scores as a
+  tie.
+- **`04_security` stays unpublished.** The findings are real and the prompts that
+  produce them are not something to hand out.
+
+Issues and pull requests are welcome; nobody is on call for them.
+
+## Going deeper
+
+| | |
 |---|---|
-| `PROFILE_MAX_MODEL_LEN` | Maximum context length |
-| `PROFILE_MAX_NUM_SEQS` | Parallel sequences (2 for ≥ 60 GB models, 4 otherwise) |
-| `PROFILE_GPU_MEM_UTIL` | Fraction of GPU memory allocated to vLLM |
-| `PROFILE_ENFORCE_EAGER` | Disables CUDA graph capture (required for some MoE models) |
-| `PROFILE_NUM_GPU_BLOCKS_OVERRIDE` | Hard-caps KV-cache blocks (empirically validated) |
-| `PROFILE_QUANTIZATION` | Weight quantization backend (e.g. `gptq_marlin`, `fp8`) |
-| `PROFILE_KV_CACHE_DTYPE` | KV-cache element type (default `fp8` to save memory) |
-| `PROFILE_REASONING_PARSER` | Structured reasoning output parser |
-| `PROFILE_TOOL_CALL_PARSER` | Tool-call output parser |
-| `PROFILE_ATTENTION_BACKEND` | Override attention backend (e.g. `TRITON_ATTN` for sm_120) |
-| `PROFILE_TOKENIZER_MODE` / `PROFILE_CONFIG_FORMAT` / `PROFILE_LOAD_FORMAT` | Mistral native format (`mistral`) |
-| `PROFILE_DOCKER_IMAGE` | Override Docker image (e.g. custom builds for sm_120 kernels) |
-| `PROFILE_BASH_WRAPPER` | Use `/bin/bash -lc "vllm serve …"` entrypoint for non-standard images |
-| `PROFILE_IPC_HOST` | Add `--ipc=host` to Docker run (required by some images) |
-| `PROFILE_DOCKER_ENV` | Space-separated `KEY=VALUE` env vars passed via `--env` |
-| `PROFILE_TRUST_REMOTE_CODE` | Pass `--trust-remote-code` to vLLM |
-
-### Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `HF_MODELS_DIR` | `~/hf_models` | Local model store |
-| `IMAGE_REPO` | `vllm/vllm-openai` | Docker image repository |
-| `DEFAULT_VLLM_TAG` | `v0.26.0` | Image tag (fallback; curated profiles pin their own image) |
-| `CONTAINER_NAME` | `vllm-server` | Container name |
-| `HOST_PORT` | `8000` | Port exposed on the host |
-| `VLLM_EXTRA_ARGS` | _(empty)_ | Additional `vllm serve` flags |
-| `DOCKER_IPC_HOST` | `0` | Set to `1` to add `--ipc host` |
-
-Override on the command line:
-
-```bash
-DEFAULT_VLLM_TAG=v0.19.0 ./vllm_spark.sh --model qwen3.5-9b
-```
-
-### Custom Docker images
-
-Some models require a specialised image due to missing sm_120 kernel support in
-the standard `vllm/vllm-openai` releases.  Custom Dockerfiles live in
-[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles)
-under `vllm/custom/`.
-
-| Model | Image | Reason |
-|---|---|---|
-| `mistralai--Mistral-Small-4-119B-2603-NVFP4` | `spark-mistral-small4:v1` | `avarok/dgx-vllm-nvfp4-kernel` base with sm_120 NVFP4 kernels + `mistral_common` |
-
-Build before first use:
-
-```bash
-cd ~/southbyte/southbyte-spark-profiles/vllm/custom
-docker build -t spark-mistral-small4:v1 -f Dockerfile.mistral-small4 .
-```
-
-The `PROFILE_DOCKER_IMAGE` field in `vllm_profile.conf` tells `vllm_spark.sh`
-which image to use for a given model.
-
-### Tested models
-
-See the [runner README](runner/README.md) for benchmark results and
-[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) for
-the authoritative, continuously updated list of validated models (one curated
-profile per model). Early snapshot as of
-2026-03-21:
-
-| Model | Notes |
-|---|---|
-| All `Qwen--Qwen3.5-*` | Standard image, all sizes |
-| All `mistralai--Ministral-3-*` | Standard image |
-| `mistralai--Devstral-Small-2-24B-Instruct-2512` | Standard image |
-| `mistralai--Mistral-Small-4-119B-2603-NVFP4` | Custom image `spark-mistral-small4:v1`, Mistral native format |
-| `nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | v0.18.0+, MARLIN backend + TRITON_ATTN required |
-
----
-
-## testplan – Automated LLM Evaluation
-
-End-to-end test framework for evaluating LLMs on DGX Spark infrastructure.
-Uses a two-Spark setup: Spark A runs a static judge model (Magistral-Small-2509),
-Spark B rotates through the target models under test.
-
-### What it tests
-
-Eight playbooks covering quality (hallucination, factual accuracy, coherence,
-instruction-following), German language quality, demographic bias (paired testing
-with Chi² significance), security (prompt injection, PII leakage, jailbreak),
-code generation (correctness + SAST), performance (TTFT, throughput, concurrency),
-hardware scaling factor calibration, and guardrails (dedicated safety/guard models
-scored against labeled data — confusion matrix, recall, false-positive rate; no
-LLM judge). See [`testplan/guards/README.md`](testplan/guards/README.md).
-
-### Quickstart
-
-```bash
-cd testplan
-pip install -e .
-
-# Dry run — show config without executing
-python orchestrator.py --dry-run
-
-# Full run — all active models, all playbooks
-python orchestrator.py
-
-# Test specific models or playbooks
-python orchestrator.py --models "Magistral-Small-2509,Ministral3-14B"
-python orchestrator.py --tags cohort_a
-python orchestrator.py --playbooks 01_quality,04_security
-
-# Test against an already-running endpoint (skips auto start/stop)
-python orchestrator.py --endpoint http://localhost:8000
-
-# Generate demo report with simulated data
-python generate_demo_report.py
-```
-
-### Reports
-
-Each test run produces a timestamped directory under `testplan/reports/`:
-
-```
-testplan/reports/
-└── 2026-04-08_1900/
-    ├── README.md              # Dashboard: all models, pass rates, links (Git primary)
-    ├── Ministral3-14B.md      # Full detail report incl. approval section
-    ├── Ministral3-14B.html    # Quick-check in browser
-    ├── Ministral3-14B.json    # Raw data for further analysis
-    └── ...
-```
-
-Markdown is the primary format — renders directly in GitLab/Gitea/GitHub,
-is diffable, and serves as archivable approval documentation.
-Per-model reports are written immediately after each model completes,
-so partial results survive early abort or timeout.
-
-Reports are stored locally only and are never committed to the repository
-(`testplan/reports/` and `testplan/reports-archive/` are gitignored).
-
-### Configuration
-
-All models, thresholds, and playbooks are defined in
-[`testplan/config/testplan.yaml`](testplan/config/testplan.yaml).
-Model `profile` names reference directories under `vllm/profiles/` in
-[southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles).
-
-K.O. criteria (immediate disqualification): hallucination rate > 5%, any PII
-leakage, critical SAST findings, statistically significant bias, or successful
-prompt injection.
-
----
-
-## HuggingFace collection sync
-
-The collection mirror (`hf-sync`, formerly `repo-sync/` in this repo) is the
-standalone [southbyte-sync](https://github.com/MvdB/southbyte-sync). It keeps a named
-HuggingFace collection mirrored to `~/hf_models/` with commit-SHA-based update
-detection; the `<owner>--<model-name>` directory naming used throughout this
-repo is defined there.
-
-### Local directory layout
-
-```
-~/hf_models/
-├── Qwen--Qwen3.5-9B/
-│   ├── config.json
-│   ├── model.safetensors
-│   ├── vllm_profile.conf   ← auto-generated by runner, gitignored
-│   └── ...
-├── mistralai--Ministral-3-8B-Instruct-2512/
-│   └── ...
-└── .sync_state.json        ← resume state, gitignored
-```
-
----
+| [`docs/runner.md`](docs/runner.md) | How a model gets served: the profile system, every `PROFILE_*` field, environment variables, custom images for sm_120 |
+| [`testplan/README.md`](testplan/README.md) | The evaluation framework: playbooks, evaluators, judge setup, configuration, reports |
+| [`testplan/guards/README.md`](testplan/guards/README.md) | Guardrail models — scored against labelled data, no judge involved |
+| [`runner/README.md`](runner/README.md) | Benchmark results per model. Machine-written by `test_models.py`, so do not edit it by hand |
 
 ## Part of the southbyte family
 
 - [southbyte-core](https://github.com/MvdB/southbyte-core) — shared index
-- [southbyte-sync](https://github.com/MvdB/southbyte-sync) — HuggingFace collection mirror → local model store
-- [southbyte-vllm](https://github.com/MvdB/southbyte-vllm) — vLLM serving runner + LLM evaluation testplan *(this repo)*
-- [southbyte-tts](https://github.com/MvdB/southbyte-tts) — TTS/STT serving + German-language evaluation
-- [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) — DGX Spark (GB10) validated profiles, kernels, benchmarks
-- **southbyte-image** *(planned)* — text-to-image serving + evaluation (diffusers)
-
-## License
-
-MIT – see [LICENSE](LICENSE)
+- [southbyte-sync](https://github.com/MvdB/southbyte-sync) — HuggingFace mirror → local model store
+- [southbyte-tts](https://github.com/MvdB/southbyte-tts) — TTS/STT serving + German evaluation
+- [southbyte-image](https://github.com/MvdB/southbyte-image) — text-to-image serving + evaluation
+- [southbyte-music](https://github.com/MvdB/southbyte-music) — text-to-music serving + web interface
+- [southbyte-results](https://github.com/MvdB/southbyte-results) — cross-modality results site
+- [southbyte-spark-profiles](https://github.com/MvdB/southbyte-spark-profiles) — GB10 profiles, kernels, benchmarks
+- **southbyte-vllm** — vLLM runner + LLM testplan *(this repository)*
 
 ---
 
