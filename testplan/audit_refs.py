@@ -16,7 +16,13 @@ for ln in (TP / ".env").read_text().splitlines():
     if "=" in ln and not ln.strip().startswith("#"):
         k, _, v = ln.partition("="); env[k.strip()] = v.strip()
 KEY = env["JUDGE_API_KEY"]
-URL = f"http://{env.get('JUDGE_HOST','10.0.0.6')}:{env.get('JUDGE_PORT','4000')}/v1/chat/completions"
+# Kein Standardwert für den Host: Das Repository ist öffentlich, und eine interne
+# Adresse im Code ist eine Adresse in der Welt. `.env.example` und testplan.yaml
+# halten es schon so; diese Datei war der letzte Ausreißer.
+HOST = env.get("JUDGE_HOST", "").strip()
+if not HOST:
+    sys.exit("JUDGE_HOST fehlt in testplan/.env — die Adresse steht bewusst nicht im Code.")
+URL = f"http://{HOST}:{env.get('JUDGE_PORT', '4000')}/v1/chat/completions"
 MODELS = [("Fable-5", "claude-fable-5"), ("GPT-5.6-sol", "gpt-5.6-sol")]
 
 CATS = ("quality", "long_context", "german_language", "bias", "code")
