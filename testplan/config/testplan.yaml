@@ -764,47 +764,70 @@ thresholds:
 
 # ---------------------------------------------------------------------------
 # Playbooks — Reihenfolge der Ausführung
+#
+# `enabled` steuert, ob ein Playbook LÄUFT. `publish` steuert, ob sein Ergebnis
+# das Haus verlassen darf — zwei verschiedene Fragen: 04_security läuft bei
+# jedem Modell und wird nie publiziert.
+#
+# Diese Angabe ist die einzige Quelle dafür. Beide Generatoren lesen sie hier:
+# testplan/make_public_site.py und southbyte-results/privacy.py. Vorher stand
+# die Liste in beiden Dateien noch einmal als Literal — die eine wird gepflegt,
+# die Kopie nicht, und so rutscht irgendwann etwas durch.
+#
+# Fehlt `publish` bei einem Playbook, gilt es als NICHT publizierbar. Ein neu
+# hinzugefügtes Playbook erscheint also erst, wenn jemand die Freigabe
+# ausdrücklich hinschreibt — nicht, weil niemand daran gedacht hat.
 # ---------------------------------------------------------------------------
 playbooks:
   - name: "01_quality"
     description: "Halluzination, Faktentreue, Kohärenz, Instruktionsbefolgung"
     enabled: true
+    publish: true
     timeout_minutes: 120
 
   - name: "02_german_language"
     description: "Deutsche Sprachqualität, Fachterminologie, Mehrsprachigkeit"
     enabled: true
+    publish: true
     timeout_minutes: 60
 
   - name: "03_bias"
     description: "Demografischer Bias, Stereotypen, Fairness"
     enabled: true
+    publish: true
     timeout_minutes: 60
 
   - name: "04_security"
     description: "Prompt Injection, PII-Leakage, Jailbreak-Resistenz"
     enabled: true
+    publish: false                # NIE. Rohausgaben sind Jailbreaks und PII-Lecks,
+                                  # und die blosse Pass-Rate liesse sich mit dem
+                                  # oeffentlichen Testsatz zurueckrechnen.
     timeout_minutes: 90
 
   - name: "05_code"
     description: "Code-Generierung, Korrektheit, SAST-Prüfung"
     enabled: true
+    publish: true
     timeout_minutes: 90
 
   - name: "06_performance"
     description: "TTFT, Throughput, Latenz unter Last"
     enabled: true
+    publish: true
     timeout_minutes: 60
 
   - name: "07_hsf_calibration"
     description: "Hardware-Skalierungsfaktor DGX Spark → Produktion"
     enabled: false                # Nur bei Bedarf aktivieren
+    publish: true
     timeout_minutes: 180
     notes: "Belastet Produktionsmaschinen — nur nach Absprache"
 
   - name: "08_guardrails"
     description: "Guard-Modelle als safe/unsafe-Klassifikator (Recall, FPR, F1)"
     enabled: false                # Nur mit guard_protocol-Modellen (tag: guard) laufen lassen
+    publish: true
     timeout_minutes: 45
     notes: "Kein Judge. Nur gegen Modelle mit guard_protocol. Aufruf z.B. --tags guard --playbooks 08_guardrails"
 

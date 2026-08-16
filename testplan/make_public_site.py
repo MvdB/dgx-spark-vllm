@@ -6,7 +6,8 @@ eigene haben). Liest die lokalen, gitignorierten Läufe unter testplan/reports/,
 rendert kuratierte Übersicht + Detailseiten je Modell/Guard und schreibt nach
 <repo>/docs/. Nur stdlib; kein GPU.
 
-Sicherheit: 04_security wird NIE publiziert; 06_performance hat keine Transkripte.
+Sicherheit: publiziert wird nur, was in config/testplan.yaml `publish: true`
+traegt — 04_security also nie. 06_performance hat keine Transkripte.
 Antworten sind auf 500 Zeichen gekürzt (so im Report gespeichert). Rohdaten unter
 testplan/reports/ bleiben lokal (gitignored) — nur docs/ wird committet.
 """
@@ -156,7 +157,35 @@ def model_repo(profile: str, is_saas: bool) -> tuple[str, str]:
         return "https://huggingface.co/" + profile.replace("--", "/", 1), "HF ↗"
     return "", ""
 
-EXCLUDE_PLAYBOOKS = {"04_security"}
+def _freigegebene_playbooks() -> frozenset[str]:
+    """Playbooks mit `publish: true` in config/testplan.yaml.
+
+    Die Freigabe steht dort und nur dort — frueher lag hier ein zweites Literal
+    {"04_security"}, und dieselbe Liste noch einmal in southbyte-results.
+
+    Bewusst eine Positivliste: was die Konfiguration nicht ausdruecklich
+    freigibt, wird nicht publiziert. Ein Playbook-Schluessel, der in einem
+    Bericht auftaucht, aber in testplan.yaml fehlt, faellt damit stillschweigend
+    heraus statt stillschweigend hinein. Laesst sich die Datei nicht lesen oder
+    steht kein Playbook darin, bricht der Lauf ab, statt im Zweifel zu senden.
+    """
+    txt = (TESTPLAN / "config" / "testplan.yaml").read_text(encoding="utf-8")
+    gesehen, frei = set(), set()
+    for b in re.split(r"\n\s*-\s+name:\s*", txt)[1:]:
+        name = b.splitlines()[0].strip().strip("\"'")
+        if not re.fullmatch(r"\d{2}_\w+", name) or re.search(r"\n\s*profile:", b):
+            continue                                  # Modell-Eintrag, kein Playbook
+        gesehen.add(name)
+        if re.search(r"\n\s*publish:\s*true\b", b):
+            frei.add(name)
+    if not gesehen:
+        raise RuntimeError(
+            "Kein Playbook in config/testplan.yaml gefunden. Ohne diese Liste ist "
+            "nicht entscheidbar, was publiziert werden darf — Abbruch, statt zu raten.")
+    return frozenset(frei)
+
+
+PUBLIC_PLAYBOOKS = _freigegebene_playbooks()
 # Modelle, die trotz evtl. vorhandenem Report NIE publiziert werden (z.B. gehören in
 # eine andere Collection). Der laufende Orchestrator hat seine Liste beim Start
 # gesnapshottet, testet Qwen-AgentWorld also noch — der Report wird hier gefiltert.
@@ -422,7 +451,7 @@ def _load_run_rows(files):
         meta, summ, pbs = d.get("meta", {}), d.get("summary", {}), d.get("playbooks", {})
         total = err = 0
         for k, v in pbs.items():
-            if k in EXCLUDE_PLAYBOOKS or not isinstance(v, dict):
+            if k not in PUBLIC_PLAYBOOKS or not isinstance(v, dict):
                 continue
             for res in v.get("results", []):
                 total += 1
@@ -436,7 +465,7 @@ def _load_run_rows(files):
         if meta.get("source") == "saas_proxy":
             saas += 1
         pr = {k: v.get("pass_rate") for k, v in pbs.items()
-              if k not in EXCLUDE_PLAYBOOKS and isinstance(v, dict)}
+              if k in PUBLIC_PLAYBOOKS and isinstance(v, dict)}
         rows.append({"model": name, "overall": summ.get("overall"), "pass_rate": summ.get("pass_rate"),
                      "ko": summ.get("knockouts", 0), "pb": pr, "file": j, "stem": j.stem, "perf": _perf(pbs),
                      "profile": meta.get("profile", ""), "is_saas": meta.get("source") == "saas_proxy"})
@@ -529,7 +558,7 @@ def _scan_local_reports(run_dir):
             continue
         total = err = 0
         for k, v in pbs.items():
-            if k in EXCLUDE_PLAYBOOKS or not isinstance(v, dict):
+            if k not in PUBLIC_PLAYBOOKS or not isinstance(v, dict):
                 continue
             for res in v.get("results", []):
                 total += 1
@@ -540,7 +569,7 @@ def _scan_local_reports(run_dir):
         if name in _EXCLUDE_MODELS:
             continue
         pr = {k: v.get("pass_rate") for k, v in pbs.items()
-              if k not in EXCLUDE_PLAYBOOKS and isinstance(v, dict)}
+              if k in PUBLIC_PLAYBOOKS and isinstance(v, dict)}
         out[name] = {"stem": j.stem, "err_rate": rate, "valid": total > 0 and rate <= 0.3,
                      "pass_rate": summ.get("pass_rate"), "overall": summ.get("overall"),
                      "ko": summ.get("knockouts", 0), "pb": pr, "perf": _perf(pbs),
