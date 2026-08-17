@@ -332,16 +332,31 @@ class BaseEvaluator(ABC):
         self,
         prompt: str,
         system_prompt: str = "",
-        # 8192 statt 2048: Reasoning-Modelle (z. B. Nemotron auf v0.24) verbrennen
-        # ihr Budget unsichtbar in unterminierten Think-Blöcken und liefern bei
-        # knappem max_tokens komplett leere Antworten (finish_reason=length).
-        max_tokens: int = 8192,
+        # 32768 statt 8192 (2026-08-17). Vorher: 8192, und bei leerer Antwort ein
+        # Retry mit doppeltem Budget — zusammen 24576 Token für einen einzigen
+        # Fall. Qwen3.8-27B mit reasoning_effort xhigh (der Standard des Modells)
+        # verbrennt regelmäßig mehr als 16384 Token in der Denkphase; fünf Fälle
+        # blieben AUCH nach dem Retry leer. Der erste Versuch war damit reine
+        # verlorene Rechenzeit: bei 7,8 tok/s allein 17 Minuten, die im Papierkorb
+        # landen, bevor der zweite Versuch überhaupt anfängt.
+        #
+        # Ein großzügiger Einzelversuch ist billiger als zwei knappe. `xhigh`
+        # denkt lange, aber nicht endlos — mit 32768 kommen diese Fälle durch,
+        # statt als Fehlschlag zu zählen.
+        #
+        # Preis: ein Modell, das WIRKLICH schleift, blockiert jetzt bis zu 70
+        # Minuten statt 52. Deshalb entfällt die Verdopplung — wer bei 32768 keinen
+        # Content liefert, liefert ihn auch bei 65536 nicht, und dann ist die
+        # Degeneration der Befund und keine Budgetfrage.
+        #
+        # _clamp_max_tokens kürzt den Wert ohnehin auf das Kontextfenster des
+        # Modells, ein hoher Standard ist also für kleine Kontexte unschädlich.
+        max_tokens: int = 32768,
         temperature: float = 0.1,
-        # 900 statt 300: volles 8192er-Budget dauert bei ~16 tok/s (120B auf GB10)
-        # über 500 s — sonst würden Loop-Fälle als Timeout statt als leere
-        # Antwort enden.
-        timeout: int = 900,
-        _degenerate_retry: bool = False,
+        # Muss zum Budget passen, sonst enden lange Antworten als Timeout statt
+        # als Ergebnis: 32768 Token bei ~7,8 tok/s (27B FP8 auf GB10) sind rund
+        # 70 Minuten.
+        timeout: int = 4500,
     ) -> tuple[str, str, float, int]:
         """Sende Anfrage an das Zielmodell.
 
@@ -352,8 +367,7 @@ class BaseEvaluator(ABC):
                       oder aus inline <think>...</think>-Tags im Content.
                       Leer wenn Modell kein Thinking unterstützt.
         """
-        if not _degenerate_retry:
-            self.last_response_degenerate = False
+        self.last_response_degenerate = False
 
         messages: list[dict[str, str]] = []
         effective_system = system_prompt or self.default_system_prompt
@@ -455,28 +469,16 @@ class BaseEvaluator(ABC):
             tokens = completion.usage.completion_tokens if completion.usage else 0
 
             # Degenerations-Erkennung: Token-Budget voll verbraucht, kein verwertbarer
-            # Content (unterminierter Think-Block, finish_reason=length). Einmaliger
-            # Retry mit doppeltem Budget/Timeout; bleibt es leer → Flag setzen. Die
-            # Evaluatoren dürfen so eine Antwort nie als Verweigerung→PASS werten.
+            # Content (unterminierter Think-Block, finish_reason=length). Kein Retry
+            # mehr — das Budget ist mit 32768 so bemessen, dass eine lange Denkphase
+            # hineinpasst; wer es ausschöpft und trotzdem nichts liefert, schleift.
+            # Die Evaluatoren dürfen so eine Antwort nie als Verweigerung→PASS werten.
             if not content and not thinking and tokens >= max_tokens:
-                if not _degenerate_retry:
-                    logger.warning(
-                        "Degenerierte Antwort (%d/%d Tokens, kein Content) für '%s' — "
-                        "Retry mit doppeltem Budget",
-                        tokens, max_tokens, prompt[:60],
-                    )
-                    return self.query_target(
-                        prompt,
-                        system_prompt,
-                        max_tokens=max_tokens * 2,
-                        temperature=temperature,
-                        timeout=timeout * 2,
-                        _degenerate_retry=True,
-                    )
                 self.last_response_degenerate = True
                 logger.error(
-                    "Antwort auch nach Retry degeneriert (%d Tokens, kein Content) für '%s'",
-                    tokens, prompt[:60],
+                    "Degenerierte Antwort (%d/%d Tokens, kein Content) für '%s' — "
+                    "kein Retry, das Budget war ausreichend bemessen",
+                    tokens, max_tokens, prompt[:60],
                 )
 
             response_type = _classify_response(
