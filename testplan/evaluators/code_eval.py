@@ -50,8 +50,15 @@ class CodeEvaluator(BaseEvaluator):
                    "Generiere sauberen, korrekten Code. "
                    "Gib NUR den Code zurück, keine Erklärungen."
             ),
-            max_tokens=4096,
-            timeout=600,
+            # 2026-08-17 von 4096 auf 16384: Code ist kurz, die Denkphase davor
+            # nicht. Reasoning-Modelle mit hoher Effort-Stufe (Qwen3.8 faehrt
+            # standardmaessig xhigh) verbrauchen mehrere Tausend Token, bevor die
+            # erste Codezeile kommt — bei 4096 endet das als leere Antwort und
+            # zaehlt als Fehlschlag, obwohl das Modell nur nicht fertig wurde.
+            # Weniger als der globale Standard bleibt es, weil hier wirklich nur
+            # eine Funktion erwartet wird.
+            max_tokens=16384,
+            timeout=2400,
         )
 
         # 2. Leere Antwort abfangen — Verweigerung/technischer Fehler, kein FAIL
