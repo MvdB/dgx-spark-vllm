@@ -1,39 +1,71 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "LLM-Testplan Testfall",
-  "description": "Schema für einen einzelnen Testfall im JSONL-Format",
+  "description": "Schema für einen einzelnen Testfall im JSONL-Format. Stand 2026-08-17: an den Bestand angeglichen — vorher wichen 72 der 230 Fälle vom id-Muster ab und 36 von der Kategorienliste, ohne dass es auffiel, weil nichts dagegen validiert. Die enums listen nur, was tatsächlich vorkommt; unbenutzte Werte (exact, semantic, regex) sind geblieben, weil der Evaluator sie unterstützt.",
   "type": "object",
-  "required": ["id", "category", "prompt", "expected"],
+  "required": [
+    "id",
+    "category",
+    "subcategory",
+    "language"
+  ],
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^[a-z]+-[0-9]{3}[a-z]?$",
-      "description": "Eindeutige Testfall-ID (z.B. hal-001, bias-002a)"
+      "pattern": "^[a-z]+(-[a-z]+)*-[0-9]{3}[a-z]?$",
+      "description": "Eindeutige Testfall-ID. Ein oder mehrere Wortsegmente, dann drei Ziffern, optional ein Buchstabe für gepaarte Fälle: hal-001, bias-002a, loc-bay-014, pii-per-001, perf-lc-001."
     },
     "category": {
       "type": "string",
-      "enum": ["quality", "bias", "security", "code", "performance", "guardrails"],
-      "description": "Hauptkategorie des Testfalls"
+      "enum": [
+        "quality",
+        "bias",
+        "security",
+        "code",
+        "performance",
+        "guardrails",
+        "pii"
+      ],
+      "description": "Hauptkategorie. Entspricht dem Verzeichnis unter testdata/, aus dem der Loader lädt."
     },
     "subcategory": {
       "type": "string",
-      "description": "Unterkategorie (z.B. hallucination, factual, injection)"
+      "description": "Unterkategorie, steuert Gewichtung und Schwellwerte im Playbook (z.B. hallucination, factual, injection, trap, per, adr)"
     },
     "language": {
       "type": "string",
-      "enum": ["de", "en", "fr", "es", "it", "nl", "pl", "pt"],
+      "enum": [
+        "de",
+        "en",
+        "fr",
+        "es",
+        "it",
+        "nl",
+        "pl",
+        "pt"
+      ],
       "default": "de",
-      "description": "Sprache des Testfalls"
+      "description": "Sprache des Testfalls. Im Bestand nur de und en."
     },
     "difficulty": {
       "type": "string",
-      "enum": ["easy", "medium", "hard"],
-      "default": "medium"
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "default": "medium",
+      "description": "Fehlt bei performance — dort gibt es keine Schwierigkeit, nur eine Last."
     },
     "prompt": {
       "type": "string",
       "minLength": 10,
-      "description": "Die eigentliche Frage / Anweisung an das Modell"
+      "description": "Die eigentliche Frage / Anweisung an das Modell. Bei pii heißt das Feld text, weil dort nicht gefragt, sondern ein Text zum Filtern übergeben wird."
+    },
+    "text": {
+      "type": "string",
+      "minLength": 10,
+      "description": "PII: der zu prüfende Text. Tritt an die Stelle von prompt."
     },
     "system_prompt": {
       "type": "string",
@@ -43,27 +75,81 @@
       "type": "string",
       "description": "Optionaler Kontext (z.B. für RAG-Szenarien)"
     },
+    "context_source": {
+      "type": "string",
+      "description": "Herkunft eines langen Kontexts, wenn er nicht im Fall selbst steht (performance/long_context)"
+    },
+    "max_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "performance: Ausgabelänge, die dieser Lastfall erzeugen soll"
+    },
+    "note": {
+      "type": "string",
+      "description": "Freitext-Hinweis zum Fall, nicht ausgewertet"
+    },
     "expected": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["exact", "contains", "regex", "semantic", "code_exec", "judge", "label"],
-          "description": "Art der Bewertung. 'label' = Ground-Truth-Klassenlabel (Guardrails: safe|unsafe), gegen das das Guard-Modell selbst bewertet — kein LLM-Judge."
+          "enum": [
+            "exact",
+            "contains",
+            "regex",
+            "semantic",
+            "code_exec",
+            "judge",
+            "label",
+            "spans"
+          ],
+          "description": "Art der Bewertung. 'label' = Ground-Truth-Klassenlabel (Guardrails: safe|unsafe), gegen das das Guard-Modell selbst bewertet — kein LLM-Judge. 'spans' = erwartete Fundstellen im Text (PII-Filter)."
         },
         "value": {
-          "type": "string",
-          "description": "Erwarteter Wert oder Beschreibung für den Judge"
+          "description": "Erwarteter Wert oder Beschreibung für den Judge. Bei type=spans stattdessen die Liste der erwarteten Fundstellen (PII-Filter).",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
         },
         "alternatives": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "description": "Akzeptable alternative Antworten"
         },
         "forbidden": {
           "type": "array",
-          "items": {"type": "string"},
+          "items": {
+            "type": "string"
+          },
           "description": "Begriffe/Phrasen die NICHT in der Antwort vorkommen dürfen"
         }
       }
@@ -71,15 +157,89 @@
     "metadata": {
       "type": "object",
       "properties": {
-        "source": {"type": "string"},
-        "reviewer": {"type": "string"},
-        "created": {"type": "string", "format": "date"},
-        "pair_id": {"type": "string", "description": "ID für gepaarte Bias-Tests"},
-        "harm_category": {"type": "string", "description": "Guardrails: Schadensklasse bei unsafe (z.B. cyber, waffen_sprengstoff, drogen); 'none' bei safe"},
-        "trap": {"type": "boolean", "description": "Guardrails: harmloser Fall, der gefährlich klingt (Fehlalarm-Falle). Immer label=safe"},
-        "response": {"type": "string", "description": "Guardrails: die zu moderierende Assistenzantwort bei subcategory=response; expected.value ist dann das Label dieser Antwort"},
-        "tags": {"type": "array", "items": {"type": "string"}}
+        "source": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "pair_id": {
+          "type": "string",
+          "description": "ID für gepaarte Bias-Tests"
+        },
+        "harm_category": {
+          "type": "string",
+          "description": "Guardrails: Schadensklasse bei unsafe (z.B. cyber, waffen_sprengstoff, drogen); 'none' bei safe"
+        },
+        "trap": {
+          "type": "boolean",
+          "description": "Guardrails: harmloser Fall, der gefährlich klingt (Fehlalarm-Falle). Immer label=safe"
+        },
+        "response": {
+          "type": "string",
+          "description": "Guardrails: die zu moderierende Assistenzantwort bei subcategory=response; expected.value ist dann das Label dieser Antwort"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "PII führt den zu prüfenden Text in text, alle anderen fragen über prompt.",
+      "if": {
+        "properties": {
+          "category": {
+            "const": "pii"
+          }
+        },
+        "required": [
+          "category"
+        ]
+      },
+      "then": {
+        "required": [
+          "text"
+        ]
+      },
+      "else": {
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "description": "performance misst Durchsatz und Latenz — es gibt dort keine erwartete Antwort.",
+      "if": {
+        "properties": {
+          "category": {
+            "const": "performance"
+          }
+        },
+        "required": [
+          "category"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "expected"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "expected"
+        ]
+      }
+    }
+  ]
 }
