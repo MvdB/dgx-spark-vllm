@@ -186,15 +186,30 @@ def _freigegebene_playbooks() -> frozenset[str]:
 
 
 PUBLIC_PLAYBOOKS = _freigegebene_playbooks()
-# Modelle, die trotz evtl. vorhandenem Report NIE publiziert werden (z.B. gehören in
-# eine andere Collection). Der laufende Orchestrator hat seine Liste beim Start
-# gesnapshottet, testet Qwen-AgentWorld also noch — der Report wird hier gefiltert.
-_EXCLUDE_MODELS = {
-    "Qwen-AgentWorld-35B-A3B",
-    "DiffusionGemma-26B-A4B",
-    "Mistral-Medium-3.5-128B-NVFP4",
-    "Nemotron-3-Nano-Omni-30B",
-}
+def _gesperrte_modelle() -> frozenset[str]:
+    """Modelle mit `publish: false` in config/testplan.yaml.
+
+    Aus der Kohorte genommene Modelle: der laufende Orchestrator testet manche
+    davon noch (Snapshot beim Start), und alte Berichte liegen weiter im
+    reports-Verzeichnis. Ohne diese Liste holt ein Altbericht ein aussortiertes
+    Modell versehentlich zurueck auf die Seite.
+
+    Bewusst eine Sperrliste, waehrend bei den Playbooks eine Positivliste steht:
+    Playbooks sind eine Handvoll und ihr Fehlerfall ist eine Datenschutzpanne;
+    Modelle sind neunzig und ihr Fehlerfall ist eine veraltete Tabellenzeile.
+    Eine Positivliste haette hier neunzig Eintraege zu pflegen und wuerde jedes
+    neue Modell stillschweigend verschlucken.
+    """
+    txt = (TESTPLAN / "config" / "testplan.yaml").read_text(encoding="utf-8")
+    gesperrt = set()
+    for b in re.split(r"\n\s*-\s+name:\s*", txt)[1:]:
+        name = b.splitlines()[0].strip().strip("\"'")
+        if re.search(r"\n\s*profile:", b) and re.search(r"\n\s*publish:\s*false\b", b):
+            gesperrt.add(name)
+    return frozenset(gesperrt)
+
+
+_EXCLUDE_MODELS = _gesperrte_modelle()
 PLAYBOOK_LABELS = {
     "01_quality": "Qualität", "02_german_language": "Deutsch", "03_bias": "Bias",
     "05_code": "Code", "06_performance": "Performance",
