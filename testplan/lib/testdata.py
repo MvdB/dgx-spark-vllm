@@ -109,6 +109,54 @@ class TestCase:
         return d
 
 
+def pruefe_schema(base_dir: Path, max_meldungen: int = 20) -> list[str]:
+    """Alle JSONL-Faelle gegen testdata/schema.json pruefen.
+
+    Laeuft ueber JEDE Datei unter base_dir/*/*.jsonl, nicht nur ueber die
+    Kategorien, die der Orchestrator laedt — sonst bliebe pii/ ungeprueft, das
+    von pii_eval.py gelesen wird. Das Schema ist am 17.08.2026 an den Bestand
+    angeglichen worden; ohne diesen Aufruf faellt eine erneute Abweichung erst
+    auf, wenn ein Auswerter ueber ein fehlendes Feld stolpert.
+    """
+    schema_datei = base_dir / "schema.json"
+    if not schema_datei.exists():
+        return [f"{schema_datei} fehlt — Testdaten ungeprueft"]
+    try:
+        from jsonschema import Draft7Validator
+    except ImportError:
+        return ["jsonschema nicht installiert — Schemapruefung uebersprungen "
+                "(.venv/bin/python -m pip install jsonschema)"]
+
+    schema = json.loads(schema_datei.read_text(encoding="utf-8"))
+    Draft7Validator.check_schema(schema)          # Fehler IM Schema, nicht in den Daten
+    validator = Draft7Validator(schema)
+
+    fehler: list[str] = []
+    gezaehlt = 0
+    for datei in sorted(base_dir.glob("*/*.jsonl")):
+        for zeilennr, zeile in enumerate(datei.read_text(encoding="utf-8").splitlines(), 1):
+            zeile = zeile.strip()
+            if not zeile or zeile.startswith("#"):
+                continue
+            try:
+                fall = json.loads(zeile)
+            except json.JSONDecodeError as e:
+                gezaehlt += 1
+                if len(fehler) < max_meldungen:
+                    fehler.append(f"{datei.parent.name}/{datei.name}:{zeilennr}: kein JSON ({e})")
+                continue
+            for v in sorted(validator.iter_errors(fall), key=lambda e: list(e.path)):
+                gezaehlt += 1
+                if len(fehler) < max_meldungen:
+                    pfad = ".".join(str(x) for x in v.path) or "(Wurzel)"
+                    fehler.append(
+                        f"{datei.parent.name}/{datei.name}:{zeilennr} "
+                        f"{fall.get('id', '?')}: {pfad}: {v.message}")
+    if gezaehlt > len(fehler):
+        fehler.append(f"... und {gezaehlt - len(fehler)} weitere Schemaverstoesse")
+    return fehler
+
+
 class TestDataLoader:
     """Lädt und filtert Testfälle aus JSONL-Dateien."""
 
@@ -173,9 +221,14 @@ class TestDataLoader:
             ]
         return filtered
 
-    def validate(self) -> list[str]:
-        """Validiere alle Testdaten und gib Fehler zurück."""
-        errors: list[str] = []
+    def validate(self, schema: bool = True) -> list[str]:
+        """Validiere alle Testdaten und gib Fehler zurück.
+
+        schema=False, wenn der Aufrufer pruefe_schema() schon selbst gefahren
+        hat — der Orchestrator tut das, weil ein Schemaverstoss den Lauf
+        abbricht, die weichen Befunde hier aber nur eine Warnung sind.
+        """
+        errors: list[str] = list(pruefe_schema(self.base_dir)) if schema else []
         all_ids: set[str] = set()
         all_cases = self.load_all()
 
