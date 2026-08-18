@@ -447,8 +447,17 @@ class BaseEvaluator(ABC):
             message = completion.choices[0].message
             raw_content = message.content  # kann None sein
 
-            # Thinking aus reasoning_content (vLLM Reasoning-API, z.B. Qwen3.5, DeepSeek-R1)
-            thinking: str = getattr(message, "reasoning_content", None) or ""
+            # Thinking aus der Reasoning-API. Das Feld heisst je nach vLLM-Stand
+            # anders: reasoning_content bei Qwen3.5/DeepSeek-R1, reasoning beim
+            # muse_glimmer-Parser im Spezial-Image. Am 19.08.2026 aufgefallen, als
+            # das neue Rohnachricht-Log bei Muse-Glimmer-30B ein gefuelltes
+            # 'reasoning' zeigte, waehrend thinking im Bericht leer blieb. Beide
+            # Namen lesen, sonst faellt die Denkspur des Modells stillschweigend weg.
+            thinking: str = (
+                getattr(message, "reasoning_content", None)
+                or getattr(message, "reasoning", None)
+                or ""
+            )
 
             # Fallback: inline <think>...</think> aus Content extrahieren
             content = raw_content or ""
@@ -458,8 +467,19 @@ class BaseEvaluator(ABC):
                     thinking = think_match.group(1).strip()
                     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-            # Fallback: Modell hat nur thinking geliefert, kein Content (Reasoning-Modell)
-            if not content and thinking:
+            # Ob die Antwort abgeschnitten wurde, entscheidet finish_reason und nicht
+            # die Frage, ob eine Denkspur da ist. Bis 2026-08-19 haing beides
+            # zusammen: ein abgeschnittener Think-Block wurde, sobald thinking
+            # gefuellt war, unten als Antwort durchgereicht und die
+            # Degenerations-Erkennung kam nie zum Zug — genau der Fall, vor dem ihr
+            # eigener Kommentar warnt. Bei Muse-Glimmer fiel das nur deshalb nicht
+            # auf, weil thinking wegen des Feldnamens immer leer war.
+            abgeschnitten = getattr(completion.choices[0], "finish_reason", "") == "length"
+
+            # Fallback: Modell hat nur thinking geliefert, kein Content (Reasoning-Modell).
+            # Nur bei sauber beendeter Antwort — ein abgeschnittener Denkfragment ist
+            # keine Antwort, sondern eine halbe.
+            if not content and thinking and not abgeschnitten:
                 logger.warning(
                     "Modell lieferte nur thinking_content, kein Content — verwende thinking als Antwort: %s",
                     prompt[:60],
@@ -473,11 +493,11 @@ class BaseEvaluator(ABC):
             # mehr — das Budget ist mit 32768 so bemessen, dass eine lange Denkphase
             # hineinpasst; wer es ausschöpft und trotzdem nichts liefert, schleift.
             # Die Evaluatoren dürfen so eine Antwort nie als Verweigerung→PASS werten.
-            if not content and not thinking and tokens >= max_tokens:
+            if not content and abgeschnitten:
                 self.last_response_degenerate = True
                 logger.error(
-                    "Degenerierte Antwort (%d/%d Tokens, kein Content) für '%s' — "
-                    "kein Retry, das Budget war ausreichend bemessen",
+                    "Degenerierte Antwort (%d/%d Tokens, finish_reason=length, kein "
+                    "Content) für '%s' — kein Retry, das Budget war ausreichend bemessen",
                     tokens, max_tokens, prompt[:60],
                 )
 
@@ -490,6 +510,27 @@ class BaseEvaluator(ABC):
                     prompt[:60],
                     response_type,
                     len(thinking),
+                )
+            # Bei leerer Antwort die Rohnachricht ins Log. Ohne sie steht im Bericht
+            # nur "leer" und man kann nicht unterscheiden, ob das Modell nichts
+            # geliefert hat oder ob der Reasoning-Parser die Antwort verworfen hat.
+            # Genau das war hal-007 am 17.08.2026: der qwen3-Parser schluckte eine
+            # vorhandene Antwort, sichtbar wurde es erst im Einzelnachlauf ohne
+            # Parser. Nur ins Laufprotokoll, nicht in den Bericht — der
+            # Veroeffentlichungsfilter laesst Rohantworten bewusst nicht durch.
+            if not content:
+                try:
+                    roh = message.model_dump()
+                except AttributeError:            # kein pydantic-Modell
+                    roh = {"content": raw_content, "reasoning_content": thinking}
+                logger.error(
+                    "Leere Antwort für '%s' (finish_reason=%s, %d Tokens). "
+                    "Rohnachricht: %s",
+                    prompt[:60],
+                    getattr(completion.choices[0], "finish_reason", "?"),
+                    tokens,
+                    str({k: (v[:800] + " …" if isinstance(v, str) and len(v) > 800 else v)
+                         for k, v in roh.items() if v not in (None, "", [], {})})[:2000],
                 )
 
             if sanitized:
