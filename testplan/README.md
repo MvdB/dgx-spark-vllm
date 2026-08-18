@@ -135,6 +135,15 @@ models:
 (Deutsch-first, Fakten-only, Sicherheitsgrenzen). Testfall-spezifische Prompts überschreiben
 diesen bei Bedarf.
 
+**Denktiefe:** Werkseinstellung. Jedes Modell laeuft so, wie es ausgeliefert wird —
+ein Modell, das ab Werk tief denkt (Qwen3.8-27B: `xhigh`), wird nicht gedrosselt, und
+eines mit flachem Standard wird nicht hochgesetzt. Die Denktiefe wird damit als
+Modelleigenschaft gemessen und nicht wegkonfiguriert. Ausnahmen stehen als
+`chat_template_kwargs` am Modelleintrag in `config/testplan.yaml`, jede mit Begruendung
+in der Zeile darueber; derzeit zwei (Nemotron-3-Super, Nemotron-Puzzle-75B). Das
+Token-Budget je Fall ist fuer alle gleich (`evaluators/base.py`), tiefes Denken geht
+also vom selben Kontingent ab wie die Antwort.
+
 **Profil-Namen** referenzieren Verzeichnisse unter `../profiles/` im Repo.
 Vollständige Optionen: siehe `lib/config.py` → `ModelConfig`.
 

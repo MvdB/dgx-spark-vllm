@@ -44,7 +44,7 @@ if _env_file.exists():
             os.environ.setdefault(_k.strip(), _v.strip())
 
 from lib.config import ModelConfig, TestplanConfig
-from lib.testdata import TestDataLoader
+from lib.testdata import TestDataLoader, pruefe_schema
 from lib.vllm_control import VllmController, VllmInstance
 
 from evaluators.base import EvalResult, PlaybookResult, Verdict
@@ -123,8 +123,20 @@ class TestplanOrchestrator:
             self._print_dry_run(models, playbooks)
             return 0
 
+        # Schema zuerst und hart: ein Testfall, der nicht zum Schema passt, faellt
+        # sonst erst im Auswerter auf — nach Stunden Modelllaufzeit. Die weichen
+        # Befunde darunter (Sprachverteilung, leerer Prompt) bleiben Warnungen.
+        schema_fehler = pruefe_schema(self.config.testdata_dir)
+        if schema_fehler:
+            logger.error("Testdaten passen nicht zu testdata/schema.json (%d):",
+                         len(schema_fehler))
+            for e in schema_fehler[:20]:
+                logger.error("  - %s", e)
+            logger.error("Abbruch vor dem Modellstart. Schema oder Testfall angleichen.")
+            return 2
+
         # Testdaten laden und validieren
-        errors = self.loader.validate()
+        errors = self.loader.validate(schema=False)
         if errors:
             logger.warning("Testdaten-Validierung: %d Probleme", len(errors))
             for e in errors[:10]:
