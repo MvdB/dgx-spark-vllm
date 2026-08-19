@@ -689,10 +689,33 @@ models:
     profile: "Qwen--Qwen3.8-27B-FP8"
     machine: "machine_a"
     tags: ["cohort_b", "dense", "instruct", "fp8", "reasoning"]
-    active: false   # wartet auf den Sync; Profil steht, Smoke-Test fehlt
+    active: false   # gelaufen und in der Kohorte; laeuft nur noch gezielt ueber --models
     params_b: 27
     system_prompt: *default_system_prompt
-    notes: "2026-08-15 vorbereitet. Rezept recipes.vllm.ai/Qwen/Qwen3.8-27B?variant=fp8 uebernommen ausser TP=4 (Spark hat eine GPU) und Kontext 262k (an TP=4 gebunden, hier 131072). Auf active umstellen, wenn der Sync durch und der Smoke-Test gruen ist."
+    notes: "2026-08-16 gelaufen (Pass 73), steht in der Kohorte. Rezept recipes.vllm.ai/Qwen/Qwen3.8-27B?variant=fp8 uebernommen ausser TP=4 (Spark hat eine GPU) und Kontext 262k (an TP=4 gebunden, hier 131072). 6,2 tok/s ueber den ganzen Lauf. Bringt denselben MTP-Kopf mit wie die NVFP4-Fassung (mtp_num_hidden_layers=1), genutzt wurde er nicht."
+
+  - name: "Qwen3.8-27B-NVFP4"
+    profile: "RedHatAI--Qwen3.8-27B-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_b", "dense", "instruct", "nvfp4", "reasoning"]
+    active: false   # laeuft gezielt ueber --models, nicht im Sammellauf
+    params_b: 27
+    system_prompt: *default_system_prompt
+    notes: "2026-08-19 gemessen, Lauf laeuft. 11,05 tok/s gegen 6,2 der FP8-Fassung (Faktor 1,78), Start 6 min 5 s, TTFT 0,19 s. Gleiche Architektur wie FP8 (Qwen3_5ForConditionalGeneration, 64 Schichten), aber textonly - daher 21 statt 29 GiB. Fuer GB10 gibt es kein Rezept; Werte aus dem 1x-RTX-5090-Abschnitt (auch Blackwell sm120) ausser --enforce-eager und Kontext 32768, beides 32-GB-Beschraenkungen der Karte: auf dem Spark startet es mit CUDA-Graphs und 131072 sauber. MTP-Kopf steckt im Checkpoint, einschalten ueber VLLM_EXTRA_ARGS im Profil - gemessen 23,12 tok/s (Faktor 2,09), aber TTFT 1,66 s."
+
+  - name: "Qwen3.8-27B-NVFP4-MTP"
+    profile: "RedHatAI--Qwen3.8-27B-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_b", "dense", "instruct", "nvfp4", "reasoning", "spekulativ"]
+    active: false   # laeuft gezielt ueber --models
+    params_b: 27
+    system_prompt: *default_system_prompt
+    # Dasselbe Profil wie die Grundlinie daruber, nur mit Spekulation. Der
+    # MTP-Kopf steckt im Checkpoint (model_mtp.safetensors), es braucht keinen
+    # eigenen Drafter. Keine Leerzeichen im JSON: der Runner zerlegt an
+    # Leerzeichen.
+    vllm_extra_args: '--speculative-config {"method":"mtp","num_speculative_tokens":3}'
+    notes: "2026-08-19 gemessen: 23,12 tok/s gegen 11,05 ohne Spekulation (Faktor 2,09), aber TTFT 1,66 s gegen 0,19 s. Drei Spekulationstoken laut Rezept. Veroeffentlichte Akzeptanzraten gelten fuer andere Builds (unsloth 0,788, Inferact 0,897, 1x5090 0,754), der RedHatAI-Checkpoint ist dort nicht gemessen. Erwartung fuer 06_performance: die TTFT-Schwellen reissen wie bei Muse-Glimmer-NVFP4-DFlash."
 
 testdata:
   base_dir: "testdata"

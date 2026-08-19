@@ -65,6 +65,20 @@ class ModelConfig:
     # zu einem extra_body zusammengefuehrt. Aktuell nutzt es kein Modell — die
     # Plumbing existiert, damit der naechste Sonderfall keine Codeaenderung braucht.
     extra_body: dict = field(default_factory=dict)
+    # Zusaetzliche Argumente fuer den vLLM-Serverstart, als eine Zeile. Sie
+    # gehen als VLLM_EXTRA_ARGS an runner/vllm_spark.sh und landen hinter den
+    # Werten aus dem vllm_profile.conf des Modells.
+    #
+    # Damit laufen zwei Eintraege auf DEMSELBEN Profil mit unterschiedlichem
+    # Serving — genau der Fall bei spekulativem Dekodieren, wo die Grundlinie
+    # und die spekulierende Variante dasselbe Modell und dieselben
+    # Speichereinstellungen teilen und sich nur in --speculative-config
+    # unterscheiden. Die Alternative waere ein zweites Modellverzeichnis, das
+    # dieselben Gewichte doppelt fuehrt und den Sync-Abgleich bricht.
+    #
+    # Der Runner zerlegt den Wert mit `read -ra` an Leerzeichen — im JSON also
+    # keine Leerzeichen setzen.
+    vllm_extra_args: str = ""
     # Sampling-Parameter, die dieses Modell nicht vertraegt und die deshalb
     # nicht gesendet werden, z.B. ["temperature"] fuer Diffusionsmodelle —
     # vLLM lehnt sie dort mit HTTP 400 ab.
@@ -213,6 +227,7 @@ class TestplanConfig:
                 sampling=m.get("sampling", {}) or {},
                 chat_template_kwargs=m.get("chat_template_kwargs", {}) or {},
                 extra_body=m.get("extra_body", {}) or {},
+                vllm_extra_args=m.get("vllm_extra_args", "") or "",
                 omit_sampling=m.get("omit_sampling", []) or [],
                 guard_protocol=m.get("guard_protocol", "") or "",
             )
