@@ -63,6 +63,34 @@ def _sanitize_prompt(text: str) -> str:
     return text
 
 
+# Langsamstes gemessenes Modell der lokalen Kohorte: Apertus-v1.5-70B mit
+# 2,86 tok/s (Olmo-3.1-32B 2,89, Muse-Glimmer-30B BF16 4,25). 2,5 als Boden
+# laesst dafuer Luft. Wer hier einen hoeheren Wert einsetzt, verkuerzt den
+# Timeout unter die Zeit, die das Budget braucht — genau der Fehler unten.
+MINDEST_DURCHSATZ_TOK_S = 2.5
+# Prefill, Warteschlange und Verbindungsaufbau, die nicht am Durchsatz haengen.
+ANLAUF_S = 300
+
+
+def zeitbudget(max_tokens: int) -> int:
+    """Timeout, der zum Token-Budget passt: so lange darf das Budget brauchen.
+
+    Am 17.08.2026 wurden Budget (8192 -> 32768) und Timeout (900 -> 4500)
+    unabhaengig voneinander gesetzt. Beides passte nicht zusammen: 32768 Token
+    brauchen bei 4,25 tok/s 128 Minuten, der Timeout lag bei 75. Jedes Modell
+    unter rund 7,3 tok/s konnte sein eigenes Budget also gar nicht ausschoepfen.
+
+    Im BF16-Lauf von Muse-Glimmer am 19.08. hat das zwei Faelle gekostet:
+    think-001 lief dreimal in den Timeout (3 h 45 min, Ergebnis: error) und
+    hal-007 zweimal, bevor der dritte Versuch durchkam (2 h 39 min fuer 2338
+    Token). Zusammen 6,4 der 15 Stunden Laufzeit.
+
+    Deshalb wird der Timeout jetzt aus dem Budget gerechnet und nicht daneben
+    gepflegt.
+    """
+    return int(ANLAUF_S + max_tokens / MINDEST_DURCHSATZ_TOK_S)
+
+
 def _classify_response(content: str | None, thinking: str, degenerate: bool = False) -> str:
     """Klassifiziere den Response-Typ für Debugging und Reporting.
 
@@ -353,10 +381,9 @@ class BaseEvaluator(ABC):
         # Modells, ein hoher Standard ist also für kleine Kontexte unschädlich.
         max_tokens: int = 32768,
         temperature: float = 0.1,
-        # Muss zum Budget passen, sonst enden lange Antworten als Timeout statt
-        # als Ergebnis: 32768 Token bei ~7,8 tok/s (27B FP8 auf GB10) sind rund
-        # 70 Minuten.
-        timeout: int = 4500,
+        # None = aus dem Budget gerechnet, siehe zeitbudget(). Ein fester Wert
+        # hier ueberschreibt das und muss dann selbst zum Budget passen.
+        timeout: int | None = None,
     ) -> tuple[str, str, float, int]:
         """Sende Anfrage an das Zielmodell.
 
@@ -368,6 +395,8 @@ class BaseEvaluator(ABC):
                       Leer wenn Modell kein Thinking unterstützt.
         """
         self.last_response_degenerate = False
+        if timeout is None:
+            timeout = zeitbudget(max_tokens)
 
         messages: list[dict[str, str]] = []
         effective_system = system_prompt or self.default_system_prompt

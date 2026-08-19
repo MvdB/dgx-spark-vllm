@@ -40,6 +40,15 @@ class VllmInstance:
             self.client = OpenAI(
                 base_url=self.api_url,
                 api_key=api_key,
+                # Keine Wiederholung. Der Timeout ist jetzt aus dem Token-Budget
+                # gerechnet (zeitbudget() in evaluators/base.py) und damit die
+                # ehrliche Obergrenze: laeuft eine Anfrage dagegen, bringt ein
+                # zweiter Versuch dasselbe Ergebnis und kostet nochmal so lange.
+                # Am 19.08.2026 hat genau das 6,4 Stunden gekostet — der Client
+                # wiederholte zweimal stumm, aus 75 Minuten wurden 3 h 45.
+                # Ein Verbindungsabriss kostet dafuer jetzt einen Fall, der als
+                # error im Bericht steht statt still wiederholt zu werden.
+                max_retries=0,
             )
         return self.client
 
