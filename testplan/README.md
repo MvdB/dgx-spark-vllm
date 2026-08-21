@@ -147,6 +147,27 @@ also vom selben Kontingent ab wie die Antwort.
 **Profil-Namen** referenzieren Verzeichnisse unter `../profiles/` im Repo.
 Vollständige Optionen: siehe `lib/config.py` → `ModelConfig`.
 
+**Modellbestand prüfen.** Der Sync zieht, was in der LocalCache-Collection
+steht; die Modellliste hier ist handgepflegt. Zwischen beidem gibt es keine
+Verbindung — `poolside/Laguna-S-2.1-NVFP4` lag deshalb neun Tage unbemerkt auf
+der Platte. Dagegen:
+
+```bash
+python pruefe_modellbestand.py          # Bericht, Exitcode 1 bei Fundstellen
+python pruefe_modellbestand.py --alle   # auch zeigen, was warum aussortiert wurde
+```
+
+Die Prüfung meldet beide Richtungen: gesynct ohne Eintrag, und `active: true`
+ohne Verzeichnis. Letzteres ist der Fall, wenn ein altes Modell von der Platte
+genommen wird, um Platz zu schaffen — dann scheitert sonst der nächste
+Sammellauf. **Die Ergebnisse eines entfernten Modells bleiben davon unberührt:**
+sie liegen in `reports/` und in `docs/`, nicht im Modellspeicher.
+
+Bild-, Sprach- und Einbettungsmodelle sowie Drafter erkennt sie an der
+Architektur und lässt sie weg — die gehören nach `southbyte-image` und
+`southbyte-tts`. Was danach übrig bleibt und trotzdem nicht laufen soll, kommt
+mit Begründung nach `testplan.yaml` unter `inventar.ignorieren`.
+
 ---
 
 ## Reports
