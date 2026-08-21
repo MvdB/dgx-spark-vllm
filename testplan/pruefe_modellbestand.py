@@ -40,7 +40,7 @@ NICHT_LLM = {
                       "mage-flow", "hidream"),
     "Einbettung":    ("embed", "modernbert", "tokenclassification", "privacy-filter",
                       "privacy_filter"),
-    "Drafter":       ("assistant", "dspark"),
+    "Drafter":       ("assistant", "dspark", "mtpv2"),
     "Tokenizer":     ("tokenizer",),
 }
 
