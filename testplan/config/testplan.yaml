@@ -583,6 +583,19 @@ models:
     system_prompt: *default_system_prompt
     notes: "2026-08-13: laeuft. Image arm64 bestaetigt, deutscher Smoke-Test sauber (17*23=391, Rhein-Erklaerung korrekt); Analysetext landet in reasoning, Antwort in content. WICHTIG: max_tokens >=1024, sonst content=null (finish=length) - das Modell denkt vor jeder Antwort ~380 Tok, gerade bei kurzen Antworten. Der Harness-Default reicht (seit 2026-08-17 32768). 2026-08-11: Erst-Test scheiterte an Stock-vLLM (Arch unbekannt). ABER recipes.vllm.ai/meta-models/Muse-Glimmer-30B nennt Spezial-Image vllm/vllm-openai:muse-glimmer (arm64, vLLM 0.27+, registriert muse_glimmer) + Custom-Parser muse_glimmer. bf16 ~55GiB passt in 128GB. Profil aktualisiert, Image pre-gepullt → nach dem Apertus-70B-Lauf testen (GPU seriell). Spec-Decoding (DFlash) optional, bräuchte Muse-Glimmer-30B-assistant-Drafter (nicht gesynct)."
 
+  - name: "Muse-Glimmer-30B-NVFP4-DFlash"
+    profile: "RedHatAI--Muse-Glimmer-30B-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_2026_08", "dense", "instruct", "nvfp4", "spekulativ"]
+    active: false   # laeuft gezielt ueber --models
+    params_b: 30
+    system_prompt: *default_system_prompt
+    # Dasselbe Profil wie die Zeile ohne Spekulation, nur mit Drafter. 15
+    # Spekulationstoken sind architekturfest (Blockgroesse des Draft-Kopfs),
+    # nicht einstellbar. Keine Leerzeichen im JSON: der Runner zerlegt daran.
+    vllm_extra_args: '--speculative-config {"method":"dflash","model":"/hf_models/meta-models--Muse-Glimmer-30B-assistant","num_speculative_tokens":15}'
+    notes: "2026-08-21 nachgetragen. Die Zeile steht seit dem 17.08. in der Kohorte, hatte aber keinen Eintrag — der Lauf lief an der Konfiguration vorbei und war damit nicht reproduzierbar. Das holt dieser Eintrag nach. ACHTUNG Durchsatz: die 8,5 tok/s im Bericht vom 17.08. stammen aus dem kaputten Chunk-Zaehler in evaluators/performance.py (repariert am 21.08.). Ueber den Lauf gerechnet waren es 23,55 tok/s gegen 10,31 ohne Spekulation, 84 statt 201 Minuten. Die Qualitaetsbefunde sind davon unberuehrt und stehen: Pass 86 auf 78, K.O. 3 auf 5, drei degenerierte Antworten, pii-001 faellt."
+
   - name: "Nemotron-3.5-Lightning-30B-A3B"
     profile: "nvidia--NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
     machine: "machine_a"
@@ -689,10 +702,33 @@ models:
     profile: "Qwen--Qwen3.8-27B-FP8"
     machine: "machine_a"
     tags: ["cohort_b", "dense", "instruct", "fp8", "reasoning"]
-    active: false   # wartet auf den Sync; Profil steht, Smoke-Test fehlt
+    active: false   # gelaufen und in der Kohorte; laeuft nur noch gezielt ueber --models
     params_b: 27
     system_prompt: *default_system_prompt
-    notes: "2026-08-15 vorbereitet. Rezept recipes.vllm.ai/Qwen/Qwen3.8-27B?variant=fp8 uebernommen ausser TP=4 (Spark hat eine GPU) und Kontext 262k (an TP=4 gebunden, hier 131072). Auf active umstellen, wenn der Sync durch und der Smoke-Test gruen ist."
+    notes: "2026-08-16 gelaufen (Pass 73), steht in der Kohorte. Rezept recipes.vllm.ai/Qwen/Qwen3.8-27B?variant=fp8 uebernommen ausser TP=4 (Spark hat eine GPU) und Kontext 262k (an TP=4 gebunden, hier 131072). 6,2 tok/s ueber den ganzen Lauf. Bringt denselben MTP-Kopf mit wie die NVFP4-Fassung (mtp_num_hidden_layers=1), genutzt wurde er nicht."
+
+  - name: "Qwen3.8-27B-NVFP4"
+    profile: "RedHatAI--Qwen3.8-27B-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_b", "dense", "instruct", "nvfp4", "reasoning"]
+    active: false   # laeuft gezielt ueber --models, nicht im Sammellauf
+    params_b: 27
+    system_prompt: *default_system_prompt
+    notes: "2026-08-19 gemessen, Lauf laeuft. 11,05 tok/s gegen 6,2 der FP8-Fassung (Faktor 1,78), Start 6 min 5 s, TTFT 0,19 s. Gleiche Architektur wie FP8 (Qwen3_5ForConditionalGeneration, 64 Schichten), aber textonly - daher 21 statt 29 GiB. Fuer GB10 gibt es kein Rezept; Werte aus dem 1x-RTX-5090-Abschnitt (auch Blackwell sm120) ausser --enforce-eager und Kontext 32768, beides 32-GB-Beschraenkungen der Karte: auf dem Spark startet es mit CUDA-Graphs und 131072 sauber. MTP-Kopf steckt im Checkpoint, einschalten ueber VLLM_EXTRA_ARGS im Profil - gemessen 23,12 tok/s (Faktor 2,09), aber TTFT 1,66 s."
+
+  - name: "Qwen3.8-27B-NVFP4-MTP"
+    profile: "RedHatAI--Qwen3.8-27B-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_b", "dense", "instruct", "nvfp4", "reasoning", "spekulativ"]
+    active: false   # laeuft gezielt ueber --models
+    params_b: 27
+    system_prompt: *default_system_prompt
+    # Dasselbe Profil wie die Grundlinie daruber, nur mit Spekulation. Der
+    # MTP-Kopf steckt im Checkpoint (model_mtp.safetensors), es braucht keinen
+    # eigenen Drafter. Keine Leerzeichen im JSON: der Runner zerlegt an
+    # Leerzeichen.
+    vllm_extra_args: '--speculative-config {"method":"mtp","num_speculative_tokens":3}'
+    notes: "2026-08-19 gemessen: 23,12 tok/s gegen 11,05 ohne Spekulation (Faktor 2,09), aber TTFT 1,66 s gegen 0,19 s. Drei Spekulationstoken laut Rezept. Veroeffentlichte Akzeptanzraten gelten fuer andere Builds (unsloth 0,788, Inferact 0,897, 1x5090 0,754), der RedHatAI-Checkpoint ist dort nicht gemessen. 2026-08-21 richtiggestellt: die Erwartung, dass die TTFT-Schwellen reissen, war falsch. Sie liegen bei 500 ms (p50) und 2000 ms (p95); gemessen wurden 274 und 312 ms. Weder hier noch bei Muse-Glimmer-NVFP4-DFlash (245/252 ms) sind sie je gerissen. Beide Spekulationszeilen hingen allein am Durchsatz, und der stammte aus dem kaputten Chunk-Zaehler in evaluators/performance.py."
 
 testdata:
   base_dir: "testdata"

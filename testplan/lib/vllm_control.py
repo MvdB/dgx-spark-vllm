@@ -9,6 +9,7 @@ Steuert vllm_spark.sh auf den DGX Spark Maschinen:
 from __future__ import annotations
 
 import logging
+import shlex
 import time
 from dataclasses import dataclass
 
@@ -40,6 +41,15 @@ class VllmInstance:
             self.client = OpenAI(
                 base_url=self.api_url,
                 api_key=api_key,
+                # Keine Wiederholung. Der Timeout ist jetzt aus dem Token-Budget
+                # gerechnet (zeitbudget() in evaluators/base.py) und damit die
+                # ehrliche Obergrenze: laeuft eine Anfrage dagegen, bringt ein
+                # zweiter Versuch dasselbe Ergebnis und kostet nochmal so lange.
+                # Am 19.08.2026 hat genau das 6,4 Stunden gekostet — der Client
+                # wiederholte zweimal stumm, aus 75 Minuten wurden 3 h 45.
+                # Ein Verbindungsabriss kostet dafuer jetzt einen Fall, der als
+                # error im Bericht steht statt still wiederholt zu werden.
+                max_retries=0,
             )
         return self.client
 
@@ -114,13 +124,21 @@ class VllmController:
         # docker run -d ist bereits im Script → Script endet nach dem Start selbst.
         spark_path = endpoint.vllm_spark_path
         hf_env = f"HF_MODELS_DIR={endpoint.hf_models_dir} " if endpoint.hf_models_dir else ""
+        # Serving-Argumente aus dem Modelleintrag. Der Runner haengt sie hinter
+        # die Werte aus dem vllm_profile.conf, so laeuft z.B. die spekulierende
+        # Variante auf demselben Profil wie ihre Grundlinie.
+        extra = (f"VLLM_EXTRA_ARGS={shlex.quote(model.vllm_extra_args)} "
+                 if model.vllm_extra_args else "")
         start_cmd = (
             f"cd {spark_path} && "
             f"{hf_env}"
+            f"{extra}"
             f"CONTAINER_NAME={container_name} "
             f"HOST_PORT={endpoint.port} "
             f"bash runner/vllm_spark.sh --model {model.profile} --skip-pull"
         )
+        if model.vllm_extra_args:
+            logger.info("Zusaetzliche Serving-Argumente: %s", model.vllm_extra_args)
         stdout, stderr, exit_code = self._exec(host, start_cmd, timeout=120)
 
         if exit_code != 0:

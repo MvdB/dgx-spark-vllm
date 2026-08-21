@@ -58,7 +58,8 @@ class CodeEvaluator(BaseEvaluator):
             # Weniger als der globale Standard bleibt es, weil hier wirklich nur
             # eine Funktion erwartet wird.
             max_tokens=16384,
-            timeout=2400,
+            # Timeout kommt aus zeitbudget(16384) = 114 min. Der frühere feste
+            # Wert von 2400 s hätte für dieses Budget nie gereicht.
         )
 
         # 2. Leere Antwort abfangen — Verweigerung/technischer Fehler, kein FAIL

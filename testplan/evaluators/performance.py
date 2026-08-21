@@ -11,6 +11,7 @@ Misst:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -142,9 +143,17 @@ class PerformanceEvaluator:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
+            # Ohne include_usage bleibt nur die Zahl der Chunks, und die ist
+            # nicht die Zahl der Token: bei spekulativer Dekodierung schickt
+            # vLLM alle angenommenen Entwurfstoken eines Schritts in EINEM
+            # Chunk. Der Benchmark hat Qwen3.8-27B-NVFP4-MTP dadurch mit 8,2
+            # statt 24,2 tok/s gemessen — Faktor 2,94, also knapp drei Token
+            # je Chunk bei drei Spekulationstoken. Aufgefallen 21.08.2026.
+            "stream_options": {"include_usage": True},
         }
 
         tokens = 0
+        chunks = 0
         ttft_ms = 0.0
         start = time.monotonic()
         first_token_time = None
@@ -175,7 +184,19 @@ class PerformanceEvaluator:
                         if first_token_time is None:
                             first_token_time = time.monotonic()
                             ttft_ms = (first_token_time - start) * 1000
-                        tokens += 1
+
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        # Der Nutzungs-Chunk kommt zuletzt und hat ein leeres
+                        # choices. Er zaehlt nicht als Ausgabe-Chunk, sonst
+                        # waere der Rueckfallwert um eins zu hoch.
+                        if chunk.get("choices"):
+                            chunks += 1
+                        usage = chunk.get("usage") or {}
+                        if usage.get("completion_tokens"):
+                            tokens = int(usage["completion_tokens"])
 
         except asyncio.TimeoutError:
             return LatencyMeasurement(
@@ -187,6 +208,17 @@ class PerformanceEvaluator:
                 ttft_ms=0, total_ms=0, tokens_generated=0,
                 tok_per_sec=0, error=str(e),
             )
+
+        if not tokens and chunks:
+            # Aelteres oder fremdes Backend ohne stream_options. Dann ist die
+            # Chunkzahl die einzige Naeherung — fuer nichtspekulatives Serving
+            # stimmt sie, fuer spekulatives misst sie zu niedrig. Deshalb laut.
+            logger.warning(
+                "Keine Nutzungsdaten im Stream — Durchsatz aus %d Chunks "
+                "genaehert. Bei spekulativer Dekodierung ist dieser Wert zu "
+                "niedrig und gehoert nicht in einen Vergleich.", chunks,
+            )
+            tokens = chunks
 
         total_ms = (time.monotonic() - start) * 1000
         gen_time = total_ms - ttft_ms
