@@ -171,6 +171,26 @@ models:
       enable_thinking: true
       low_effort: true
 
+  - name: "Nemotron-3-Super-MTPv2"
+    profile: "nvidia--NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+    machine: "machine_b"
+    tags: ["cohort_b", "mamba_moe", "long_context", "nvfp4", "heads_up_nemotron", "spekulativ"]
+    active: false   # 2026-08-22 ZURUECKGESTELLT, siehe notes
+    params_b: 120
+    system_prompt: *default_system_prompt
+    # Dasselbe Profil wie die Zeile ohne Spekulation, dasselbe Sampling,
+    # dieselben chat_template_kwargs — der EINZIGE Unterschied ist der
+    # Drafter. Wer hier etwas angleicht, misst zwei Unterschiede statt einem.
+    # Keine Leerzeichen im JSON: der Runner zerlegt an Leerzeichen.
+    vllm_extra_args: '--speculative-config {"method":"mtp","model":"/hf_models/nvidia--Nemotron-3-Super-120B-A12B-BF16-MTPv2","num_speculative_tokens":3}'
+    notes: "2026-08-21 angelegt. MTPv2 ist ein separat ausgelieferter MTP-Kopf, kein eigenes Modell (1040 Tensoren, alle mit Praefix mtp, 5,9 GB). Die Modellkarte nennt genau unseren Checkpoint als unterstuetztes Ziel: NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4. NVIDIA misst die mittlere Akzeptanzlaenge mit 4,31 gegen 3,45 des im Super eingebauten MTP-Kopfs, bei Drafttiefe 7 und Temperatur 0 auf SPEED-Bench. num_speculative_tokens=3 hier nach dem GB10-Rezept (recipes.vllm.ai/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4), nicht nach den 7 der Messung — das Rezept gilt fuer diese Maschine. ACHTUNG beim Lesen der Zahlen: der Super bringt einen EIGENEN MTP-Kopf mit, der bisher nie eingeschaltet war. Diese Zeile vergleicht also MTPv2 gegen gar keine Spekulation, nicht gegen den eingebauten Kopf. Das waere eine dritte Zeile. ZURUECKGESTELLT am 2026-08-22 nach dem Fehlversuch in der Nacht vom 21. auf den 22.08.: Start 00:12:53, ab 00:21:07 wiederholt 'NVRM: Out of memory [NV_ERR_NO_MEMORY]' aus _memdescAllocInternal im Kernel-Log, der Server wurde nie bereit. Schlimmer als der Fehlstart ist, dass der Prozess sich NICHT beendet hat: der Container lief bis 04:30 weiter, 4 h 16 min CPU-Zeit, und trieb die Maschine in den globalen OOM. Der erschlug rsyslogd, systemd-logind und die Bash der tmux-Sitzung — damit starben auch der Aufpasser und die Folgekette mit den fuenf neuen Modellen, die deshalb nie angefangen hat. Vor einem neuen Versuch sind ZWEI Dinge noetig, keines davon Beifang: (1) das KV-Budget neu rechnen, denn der Drafter mit 5,9 GB BF16 kommt auf das Budget obendrauf und das Profil ist fuer den Super OHNE Spekulation gerechnet; (2) eine harte Abbruchgrenze, damit ein haengender Start die Maschine nicht noch einmal mitnimmt."
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+    chat_template_kwargs:
+      enable_thinking: true
+      low_effort: true
+
   - name: "Nemotron-Puzzle-75B"
     profile: "nvidia--NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4"
     machine: "machine_b"
@@ -574,6 +594,51 @@ models:
     params_b: 35
     system_prompt: *default_system_prompt
     notes: "2026-08-21 auf Zuruf vorbereitet, laeuft erst nach dem naechsten Collection-Sync. KEIN Rezept auf recipes.vllm.ai — weder fuer Ornith noch fuer ein Qwen3.5-MoE; die Profilwerte sind aus Ornith-1.0-35B-FP8 (gleiche Architekturfamilie, auf dieser Maschine gelaufen) und RedHatAI--Qwen3.8-27B-NVFP4 (gleiche modelopt-Quantisierung) hergeleitet, nicht abgeschrieben. Arch Qwen3_5MoeForConditionalGeneration, 40 Schichten hybrid (30 linear / 10 voll), 256 Experten und 8 aktiv, Attention FP8 plus Experten NVFP4 W4A16. Kontext bewusst auf 32768 wie beim FP8-Vorgaenger, sonst sind die beiden Ornith-Zeilen nicht vergleichbar. MTP-Kopf steckt im Checkpoint (mtp_num_hidden_layers=1, aus der Quantisierung ausgenommen) — fuer eine Spekulationszeile denselben Eintrag ein zweites Mal anlegen und vllm_extra_args setzen wie bei Qwen3.8-27B-NVFP4-MTP. Lizenz MIT laut Modellkarte, vor dem Veroeffentlichen an den Dateien pruefen."
+
+  - name: "Laguna-S-2.1-NVFP4"
+    profile: "poolside--Laguna-S-2.1-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_2026_08", "moe", "instruct", "nvfp4", "reasoning", "long_context"]
+    active: false   # 2026-08-21 nachgetragen, noch nie gelaufen
+    params_b: 200
+    system_prompt: *default_system_prompt
+    notes: "2026-08-21 nachgetragen; lag seit dem 12.08. gesynct ohne Eintrag, gefunden von pruefe_modellbestand.py. Rezept recipes.vllm.ai/poolside/Laguna-S-2.1 ist ausdruecklich auf DGX Spark GB10 validiert. LagunaForCausalLM und die Parser poolside_v1 sind in vLLM 0.27.1 vorhanden, an der Modellregistrierung des Images geprueft. ACHTUNG: 93 GB Gewichte auf 128 GB Unified Memory, das ist der engste Fall in der Kohorte — Profil faehrt GPU_MEM_UTIL 0.90 und MAX_NUM_SEQS 2 — der Wert ist aus dem kuratierten Profil in southbyte-spark-profiles uebernommen und dort begruendet (der Super traegt auf derselben Maschine 0.92 bei 74,8 GiB). Eine fruehere Fassung dieser Notiz nannte 0.80; das stand in keinem Profil und war falsch. Bringt eigenen Modellcode mit (modeling_laguna.py), braucht trust_remote_code."
+
+  - name: "Laguna-XS-2.1-FP8"
+    profile: "poolside--Laguna-XS-2.1-FP8"
+    machine: "machine_a"
+    tags: ["cohort_2026_08", "moe", "instruct", "fp8", "reasoning"]
+    active: false   # 2026-08-21 nachgetragen, noch nie gelaufen
+    params_b: 60
+    system_prompt: *default_system_prompt
+    notes: "2026-08-21 nachgetragen; lag seit dem 12.08. gesynct ohne Eintrag. Kleine Schwester von Laguna-S, 33 GB, 40 Schichten, 256 Experten und 8 aktiv. Gleiche Architektur und gleiche Parser, aber ohne die Speicherenge des grossen Bruders."
+
+  - name: "Hy-MT2-30B-A3B-FP8"
+    profile: "tencent--Hy-MT2-30B-A3B-FP8"
+    machine: "machine_a"
+    tags: ["cohort_2026_08", "moe", "instruct", "fp8", "reasoning"]
+    active: false   # 2026-08-21 nachgetragen, noch nie gelaufen
+    params_b: 30
+    system_prompt: *default_system_prompt
+    notes: "2026-08-21 nachgetragen; lag seit dem 12.08. gesynct ohne Eintrag. KEIN Rezept auf recipes.vllm.ai (404 unter dem erwarteten Pfad). Architektur HYV3ForCausalLM ist in 0.27.1 registriert; die Parser hy_v3 stammen aus der Image-Registrierung und passen namentlich zur Architektur — am ersten Lauf pruefen, ob reasoning_content gefuellt ist. 29 GB, 48 Schichten, 128 Experten, 8 aktiv."
+
+  - name: "Mellum2-12B-A2.5B-Instruct"
+    profile: "JetBrains--Mellum2-12B-A2.5B-Instruct"
+    machine: "machine_a"
+    tags: ["cohort_2026_08", "moe", "instruct", "code"]
+    active: false   # 2026-08-21 nachgetragen, noch nie gelaufen
+    params_b: 12
+    system_prompt: *default_system_prompt
+    notes: "2026-08-21 nachgetragen; lag seit dem 12.08. gesynct ohne Eintrag. Rezept recipes.vllm.ai/JetBrains/Mellum2-12B-A2.5B-Instruct vorhanden; dessen Angabe, es brauche vLLM-nightly, ist ueberholt — 0.27.1 kennt MellumForCausalLM, an der Modellregistrierung geprueft. Kein Reasoning-Parser: diese Fassung gibt keine think-Bloecke aus, im Chat-Template fehlt das oeffnende <think>. 23 GB BF16."
+
+  - name: "Mellum2-12B-A2.5B-Thinking"
+    profile: "JetBrains--Mellum2-12B-A2.5B-Thinking"
+    machine: "machine_a"
+    tags: ["cohort_2026_08", "moe", "instruct", "code", "reasoning"]
+    active: false   # 2026-08-21 nachgetragen, noch nie gelaufen
+    params_b: 12
+    system_prompt: *default_system_prompt
+    notes: "2026-08-21 nachgetragen; lag seit dem 12.08. gesynct ohne Eintrag. Wie die Instruct-Fassung, aber mit Denkspur. Reasoning-Parser deepseek_r1, weil es keinen mellum-Parser gibt und das Template mit <think>...</think> arbeitet — genau dem Format, das deepseek_r1 zerlegt. Ohne Parser landet die Denkspur in der Antwort und verdirbt jede Bewertung; am ersten Lauf pruefen, ob reasoning_content gefuellt ist."
 
   - name: "Apertus-v1.5-8B"
     profile: "swiss-ai--Apertus-v1.5-8B"
