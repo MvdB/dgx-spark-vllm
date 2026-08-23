@@ -137,6 +137,30 @@ models:
     system_prompt: *default_system_prompt
     notes: "spark-gemma4:v1 (transformers 5.x für gemma4-Architektur); Interleaved Attention → enforce_eager; 131072 ctx"
 
+
+  - name: "Gemma-4-31B-MTP"
+    profile: "google--gemma-4-31B-it"
+    machine: "machine_b"
+    tags: ["cohort_c", "dense", "multimodal", "spekulativ"]
+    active: false   # laeuft gezielt ueber --models
+    params_b: 31
+    system_prompt: *default_system_prompt
+    # Dasselbe Profil wie die Zeile darueber, derselbe system_prompt — der
+    # EINZIGE Unterschied ist der Drafter. Wer hier etwas angleicht, misst zwei
+    # Unterschiede statt einem. Keine Leerzeichen im JSON: der Runner zerlegt
+    # an Leerzeichen.
+    vllm_extra_args: '--speculative-config {"model":"/hf_models/google--gemma-4-31B-it-assistant","num_speculative_tokens":4}'
+    notes: "2026-08-23 angelegt, Drafter am 23.08. um 12:00 gesynct, noch nicht gelaufen. google/gemma-4-31B-it-assistant ist der offizielle MTP-Drafter; die Modellkarte nennt genau unser Ziel (TARGET_MODEL_ID google/gemma-4-31B-it), und die Kohortenzeile faehrt genau dieses Profil. vLLM 0.27.1 unterstuetzt ihn nativ: config/speculative.py erkennt model_type gemma4_assistant und schreibt die Architektur auf Gemma4MTPModel um. Deshalb steht KEIN method-Feld im JSON — vLLM leitet die Methode selbst aus dem model_type ab, und das Rezept schreibt es auch nicht hin. num_speculative_tokens=4 stammt aus dem Rezept recipes.vllm.ai/Google/gemma-4-31B-it (gilt ab vLLM 0.19.1, wir fahren 0.27.1). ACHTUNG, hier lag eine erste Fassung dieses Eintrags falsch: aus n_predict=1 und einer Warnung in speculative.py war auf 1 geschlossen worden. Die Warnung ist generisch fuer MTP-Drafter; hier laeuft ein eigenstaendiges kleines Draftmodell, das autoregressiv viermal aufgerufen wird, um vier Token vorzuschlagen. Nicht mit den 3 von Qwen3.8-27B-NVFP4-MTP verwechseln, dort steckt der Kopf im Checkpoint. Die Parser des Rezepts (reasoning-parser gemma4, tool-call-parser gemma4, auto-tool-choice) stehen bereits im Profil der Grundlinie und sind damit in beiden Zeilen gleich. SPEICHER: 59 GB Gewichte plus 0,93 GB Drafter bei GPU_MEM_UTIL 0.88 von 128 GB — rund 112 GB Budget, also gut 50 GB fuer KV-Cache. Anders als bei Nemotron-3-Super-MTPv2, wo 5,9 GB Drafter auf ein fuer den Betrieb ohne Spekulation gerechnetes Budget kamen und die Maschine in den OOM lief."
+
+  - name: "Gemma-4-26B-A4B-MTP"
+    profile: "google--gemma-4-26B-A4B-it"
+    machine: "machine_b"
+    tags: ["cohort_c", "moe", "multimodal", "spekulativ"]
+    active: false   # laeuft gezielt ueber --models
+    params_b: 26
+    system_prompt: *default_system_prompt
+    vllm_extra_args: '--speculative-config {"model":"/hf_models/google--gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
+    notes: "2026-08-23 angelegt, Drafter am 23.08. um 12:01 gesynct, noch nicht gelaufen. Wie die 31B-Zeile, nur fuer das MoE: eigener Drafter google/gemma-4-26B-A4B-it-assistant, 0,83 GB, dieselbe Architektur Gemma4AssistantForCausalLM. SPEICHER: 49 GB Gewichte plus 0,83 GB Drafter bei 0.88 — der entspannteste der beiden Faelle. Vergleichszeile ist Gemma-4-26B-A4B (76 Prozent, 23,0 tok/s); dort liegt auch der Wert, an dem sich die Spekulation messen lassen muss."
   - name: "gpt-oss-120b"
     profile: "openai--gpt-oss-120b"
     machine: "machine_b"
@@ -803,6 +827,14 @@ models:
     # Leerzeichen.
     vllm_extra_args: '--speculative-config {"method":"mtp","num_speculative_tokens":3}'
     notes: "2026-08-19 gemessen: 23,12 tok/s gegen 11,05 ohne Spekulation (Faktor 2,09), aber TTFT 1,66 s gegen 0,19 s. Drei Spekulationstoken laut Rezept. Veroeffentlichte Akzeptanzraten gelten fuer andere Builds (unsloth 0,788, Inferact 0,897, 1x5090 0,754), der RedHatAI-Checkpoint ist dort nicht gemessen. 2026-08-21 richtiggestellt: die Erwartung, dass die TTFT-Schwellen reissen, war falsch. Sie liegen bei 500 ms (p50) und 2000 ms (p95); gemessen wurden 274 und 312 ms. Weder hier noch bei Muse-Glimmer-NVFP4-DFlash (245/252 ms) sind sie je gerissen. Beide Spekulationszeilen hingen allein am Durchsatz, und der stammte aus dem kaputten Chunk-Zaehler in evaluators/performance.py."
+  - name: "Qwen3.8-27B-Uncensored-NVFP4"
+    profile: "orcarouter--Qwen3.8-27B-Uncensored-NVFP4"
+    machine: "machine_a"
+    tags: ["cohort_b", "dense", "instruct", "nvfp4", "reasoning", "uncensored"]
+    active: false   # laeuft gezielt ueber --models
+    params_b: 27
+    system_prompt: *default_system_prompt
+    notes: "2026-08-23 angelegt, am 22.08. gesynct, noch nicht gelaufen. Uncensored-Fassung derselben Basis, die in der Kohorte bereits dreimal steht (Qwen3.8-27B-FP8, -NVFP4, -NVFP4-MTP) — damit ein direkter Vergleichspunkt fuer 04_security und 08_guardrails bei sonst gleicher Herkunft. KEIN Rezept auf recipes.vllm.ai (404); das Profil ist von RedHatAI--Qwen3.8-27B-NVFP4 abgeleitet, und die Ableitung ist geprueft: gleiche Architektur Qwen3_5ForConditionalGeneration, gleiche 64 Schichten, gleiche Quantisierung compressed-tensors mixed-precision mit strategy=channel. ERWARTUNG BEIM LESEN: in 01_quality duerfte sich wenig tun, die Aussage liegt in den Sicherheits-Playbooks. Wer die Zahlen vergleicht, vergleicht gegen Qwen3.8-27B-NVFP4, nicht gegen die Kohorte insgesamt."
 
 # ---------------------------------------------------------------------------
 # Modellbestand
@@ -940,6 +972,7 @@ thresholds:
 # ausdrücklich hinschreibt — nicht, weil niemand daran gedacht hat.
 # ---------------------------------------------------------------------------
 playbooks:
+
   - name: "01_quality"
     description: "Halluzination, Faktentreue, Kohärenz, Instruktionsbefolgung"
     enabled: true
