@@ -1064,8 +1064,10 @@ def build_index(runs, guards, roster, reports, running_prof):
     cards = "\n".join([local_card, saas_card, g_card])
     inner = (f'<div class="cards">{cards}</div>\n{local_sec}\n{saas_sec}\n{g_sec}')
     lede = ("LLM- und Guardrail-Evaluationen auf dem NVIDIA DGX Spark (GB10). Modell- und Guard-Namen "
-            "sind anklickbar — Fall für Fall mit Prompt, Antwort und Judge. Rohdaten bleiben lokal; "
-            "Sicherheits-Playbook (04) wird nicht publiziert.")
+            "sind anklickbar — Fall für Fall mit Prompt, Antwort und Judge. Rohdaten bleiben lokal. "
+            "Vom Sicherheits-Playbook (04) erscheinen hier keine Fälle; seine Scores stehen ohne "
+            'Prompt und Antwort in der <a href="https://results.southbyte.de/matrix.html">'
+            "Testfall-Matrix</a>.")
     return page_shell("LLM- & Guardrail-Evaluationen", inner, subtitle=lede, back="")
 
 
