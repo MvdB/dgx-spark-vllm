@@ -12,6 +12,8 @@ import logging
 import shlex
 import time
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import paramiko
 from openai import OpenAI
@@ -19,6 +21,12 @@ from openai import OpenAI
 from .config import EndpointConfig, JudgeConfig, ModelConfig, TargetConfig
 
 logger = logging.getLogger("testplan.vllm_control")
+
+# Absturzprotokolle: testplan/logs/ ist gitignored und damit der richtige Ort.
+_ABSTURZ_DIR = Path(__file__).resolve().parents[1] / "logs"
+# So viele Zeilen werden gesichert. Die Filterung auf Fehlermuster sieht nur
+# die letzten 60 — bei Laguna-XS-2.1-FP8 stand die Ursache oberhalb davon.
+_ABSTURZ_ZEILEN = 2000
 
 
 @dataclass
@@ -191,7 +199,43 @@ class VllmController:
             f"grep -viE ' INFO | WARNING ' | tail -6"
         ))
         detail = logs.strip() or "(keine Fehlerzeile im Container-Log gefunden)"
-        return True, f"Container-Status '{status}' (exit={code}). Ursache:\n{detail}"
+        pfad = self._absturzprotokoll_sichern(host, name)
+        hinweis = f"\nVollstaendiges Container-Log: {pfad}" if pfad else (
+            "\nWARNUNG: das vollstaendige Container-Log konnte NICHT gesichert werden."
+        )
+        return True, f"Container-Status '{status}' (exit={code}). Ursache:\n{detail}{hinweis}"
+
+    def _absturzprotokoll_sichern(self, host: str, name: str) -> str:
+        """Sichere das vollstaendige Container-Log, BEVOR aufgeraeumt wird.
+
+        Am 22.08.2026 scheiterte Laguna-XS-2.1-FP8 mit 'Engine core
+        initialization failed. See root cause above.' — und genau dieses
+        'above' war verloren: die Filterung oben sieht nur die letzten 60
+        Zeilen, und unmittelbar danach entfernt der Aufrufer den Container.
+        Die Meldung liess sich nur durch einen kompletten zweiten Lauf
+        wiederbeschaffen. Ein Fehlstart soll seine eigene Ursache nicht
+        mitnehmen.
+
+        Rueckgabe: Pfad des geschriebenen Protokolls, oder "" im Fehlerfall
+        (das Sichern darf den Fail-Fast niemals selbst zum Absturz bringen).
+        """
+        try:
+            roh, _, rc = self._exec(
+                host, f"docker logs --tail {_ABSTURZ_ZEILEN} {name} 2>&1"
+            )
+            if rc != 0 or not roh.strip():
+                logger.warning("Absturzprotokoll fuer %s ist leer (rc=%s)", name, rc)
+                return ""
+            _ABSTURZ_DIR.mkdir(parents=True, exist_ok=True)
+            stempel = datetime.now().strftime("%Y%m%d_%H%M%S")
+            ziel = _ABSTURZ_DIR / f"absturz_{name}_{stempel}.log"
+            ziel.write_text(roh, encoding="utf-8", errors="replace")
+            logger.warning("Absturzprotokoll gesichert: %s (%d Zeilen)",
+                           ziel, roh.count("\n") + 1)
+            return str(ziel)
+        except Exception as e:  # noqa: BLE001 - Sichern darf nie der Grund des Scheiterns sein
+            logger.warning("Absturzprotokoll fuer %s nicht sicherbar: %s", name, e)
+            return ""
 
     def _wait_for_ready(self, instance: VllmInstance, timeout: int = 600) -> None:
         """Warte bis der vLLM Health-Endpoint antwortet.
