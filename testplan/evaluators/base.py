@@ -21,7 +21,27 @@ logger = logging.getLogger("testplan.evaluators")
 # Sentinel: max_model_len wurde noch nie abgefragt (vs. None = abgefragt, unbekannt).
 _MAX_LEN_UNFETCHED = -1
 # Sicherheitsabstand (Tokens) zwischen Prompt+Output und Kontextfenster.
-_CONTEXT_SAFETY_MARGIN = 32
+#
+# Fester Sockel PLUS Anteil der Prompt-Schaetzung: Die Schaetzung in
+# _clamp_max_tokens rechnet mit ~3 Zeichen je Token. Wie weit sie danebenliegt,
+# haengt am Tokenizer des Zielmodells und waechst mit der Prompt-Laenge — ein
+# fester Abstand kann eine PROZENTUALE Abweichung nicht auffangen.
+#
+# Beleg vom 2026-08-22: derselbe Prompt, dasselbe Kontextfenster von 32768.
+# Ornith-1.5 lief damit durch, Mellum2-12B-A2.5B-Instruct bekam fuenf HTTP 400.
+# Der Server rechnete 639 Prompt-Token, geschaetzt waren 606 — 5,4 % zu wenig,
+# und die 32 Token Abstand deckten alles davon ab bis auf eines: angefragt
+# 32130 Output + 639 Prompt = 32769 bei erlaubten 32768. Ein einziges Token.
+# Betroffen waren think-004 und lctx-001/003/004 (die langen Prompts) sowie
+# pii-003; sie zaehlten als verdict=error und fehlten damit in der Wertung.
+#
+# 25 % Aufschlag deckt auch einen Tokenizer, der deutschen Text deutlich
+# feiner zerlegt als die Heuristik annimmt. Der Preis ist bei einem Fenster
+# von 32768 und Prompts dieser Groesse eine dreistellige Zahl Output-Token,
+# die kein Fall braucht — wer bei 31900 Token nicht fertig wird, ist
+# degeneriert und nicht knapp im Budget.
+_CONTEXT_SAFETY_MARGIN = 64
+_CONTEXT_SAFETY_ANTEIL = 0.25
 
 # Heuristik: Safety-Refusal-Phrases (DE + EN)
 _SAFETY_PATTERNS = re.compile(
@@ -344,14 +364,15 @@ class BaseEvaluator(ABC):
         # Konservative Token-Schätzung des Prompts (~3 Zeichen/Token + Rollen-Overhead).
         prompt_chars = sum(len(m.get("content", "")) for m in messages)
         prompt_est = prompt_chars // 3 + 8 * len(messages)
-        budget = ctx - prompt_est - _CONTEXT_SAFETY_MARGIN
+        abstand = _CONTEXT_SAFETY_MARGIN + int(prompt_est * _CONTEXT_SAFETY_ANTEIL)
+        budget = ctx - prompt_est - abstand
         if budget <= 0:
             # Prompt allein sprengt den Kontext — Clamp kann nichts retten.
             return max_tokens
         if max_tokens > budget:
             logger.info(
-                "max_tokens %d → %d gekürzt (Kontext %d, Prompt~%d) für '%s'",
-                max_tokens, budget, ctx, prompt_est, self.target_model,
+                "max_tokens %d → %d gekürzt (Kontext %d, Prompt~%d, Abstand %d) für '%s'",
+                max_tokens, budget, ctx, prompt_est, abstand, self.target_model,
             )
             return budget
         return max_tokens
