@@ -316,6 +316,12 @@ CI_STYLE = """
  .judge{background:var(--bg-raised);border-left:3px solid var(--green);padding:.45rem .65rem;border-radius:3px}
  details{margin:.3rem 0} summary{cursor:pointer;color:var(--text-muted);font-family:var(--mono);font-size:.76rem}
  .outcome-TP,.outcome-TN{color:var(--green);font-weight:600} .outcome-FP,.outcome-FN{color:var(--ko);font-weight:600}
+ .toc{display:flex;flex-wrap:wrap;gap:.4rem .5rem;align-items:baseline;margin:-.9rem 0 1.6rem}
+ .toc b{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-right:.2rem}
+ .toc a{font-size:.84rem;padding:.15rem .5rem;border:1px solid var(--border);border-radius:999px;text-decoration:none}
+ .toc a:hover{border-color:var(--green)}
+ h2 .top{float:right;font-size:.7rem;font-family:var(--mono);font-weight:400;text-decoration:none;opacity:.5}
+ h2 .top:hover{opacity:1}
  .teaser{border:1px solid var(--border-hi);border-radius:8px;padding:.85rem 1.1rem;margin:.3rem 0 1.6rem;background:var(--bg-card)}
  .teaser .facts{display:flex;flex-wrap:wrap;gap:.35rem 1.4rem;font-size:.86rem;margin-bottom:.6rem}
  .teaser .facts b{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-right:.4rem}
@@ -864,13 +870,26 @@ def _llm_teaser(meta, summ, pbs):
             f'<span class="pbmini">{mini}</span></div></div>')
 
 
+def _sprungmarken(kapitel):
+    """Inhaltsverzeichnis aus den Kapiteln, die WIRKLICH auf der Seite stehen.
+
+    Nicht aus PLAYBOOK_LABELS: 04_security wird bewusst nie ausgeliefert, und
+    ein Playbook ohne Faelle bekommt keine Ueberschrift. Eine fest verdrahtete
+    Liste wuerde auf Anker zeigen, die es nicht gibt.
+    """
+    ziele = "".join(f'<a href="#{esc(a)}">{esc(b)}</a>' for a, b in kapitel)
+    return f'<nav class="toc" id="oben"><b>Kapitel</b>{ziele}</nav>'
+
+
 def llm_detail_html(row, prompts):
     d = json.loads(row["file"].read_text(encoding="utf-8"))
     meta, pbs, summ = d.get("meta", {}), d.get("playbooks", {}), d.get("summary", {})
     parts = [_llm_teaser(meta, summ, pbs)]
+    kapitel = []  # (Anker, Beschriftung) je Kapitel, das tatsaechlich gerendert wird
     perf = _perf(pbs)
     if perf:
         parts.append(_perf_section(perf))
+        kapitel.append(("performance", PLAYBOOK_LABELS["06_performance"]))
     for pb in _JUDGE_PBS:
         if pb not in pbs:
             continue
@@ -878,8 +897,10 @@ def llm_detail_html(row, prompts):
         results = sorted(v.get("results", []), key=lambda r: str(r.get("test_id", "")).startswith("loc-bay"))
         if not results:
             continue
+        kapitel.append((pb, PLAYBOOK_LABELS[pb]))
         parts.append(f'<h2 id="{esc(pb)}">{esc(PLAYBOOK_LABELS[pb])} · '
-                     f'{v.get("passed", 0)}/{v.get("total", 0)} · ø {float(v.get("mean_score", 0) or 0):.2f}</h2>')
+                     f'{v.get("passed", 0)}/{v.get("total", 0)} · ø {float(v.get("mean_score", 0) or 0):.2f}'
+                     f'<a class="top" href="#oben" title="nach oben">↑ oben</a></h2>')
         for r in results:
             verdict = (r.get("verdict") or "").lower()
             tid = r.get("test_id", "")
@@ -904,6 +925,10 @@ def llm_detail_html(row, prompts):
             parts.append("".join(blk))
     src = "SaaS (LiteLLM-Proxy)" if meta.get("source") == "saas_proxy" else "lokal (DGX Spark / vLLM)"
     subtitle = (f'{src} · Antworten auf 500 Zeichen gekürzt · Sicherheits-Playbook (04) nicht enthalten.')
+    # Erst hier steht fest, welche Kapitel es gibt — deshalb wird das
+    # Inhaltsverzeichnis am Ende gebaut und hinter den Teaser gesetzt.
+    if len(kapitel) > 1:
+        parts.insert(1, _sprungmarken(kapitel))
     return page_shell(f'{meta.get("model", row["stem"])} — LLM-Detail', "\n".join(parts), subtitle=subtitle, back="index.html")
 
 
