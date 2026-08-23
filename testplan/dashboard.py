@@ -24,6 +24,7 @@ from typing import Any
 from jinja2 import Template
 
 from evaluators.base import PlaybookResult, Verdict
+from reporter import gesamturteil
 from lib.config import TestplanConfig
 
 # ---------------------------------------------------------------------------
@@ -629,20 +630,17 @@ class DashboardGenerator:
             m_scores = []
             total_tests += m_total
 
-            # Status
-            has_ko = any(pb.has_knockout for pb in pb_results)
-            if has_ko:
-                overall = "K.O."
-                overall_class = "ko"
-            elif m_total > 0 and m_passed / m_total >= 0.90:
-                overall = "Bestanden"
-                overall_class = "pass"
-            elif m_total > 0 and m_passed / m_total >= 0.70:
-                overall = "Warnung"
-                overall_class = "warn"
-            else:
-                overall = "Nicht bestanden"
-                overall_class = "fail"
+            # Status — dieselbe Quelle wie die Modellberichte. Hier stand bis zum
+            # 23.08.2026 eine zweite Kopie der Regel ("ein K.O. irgendwo") mit
+            # eigenen Schwellen (0.90/0.70). Zwei Kopien laufen auseinander, und
+            # genau das war der Fehler, den diese Aenderung behebt.
+            _urteil = gesamturteil(pb_results, self.config.thresholds)["overall"]
+            overall, overall_class = {
+                "K.O.": ("K.O.", "ko"),
+                "PASS": ("Bestanden", "pass"),
+                "WARN": ("Warnung", "warn"),
+                "FAIL": ("Nicht bestanden", "fail"),
+            }[_urteil]
 
             # Pro-Playbook-Zellen
             playbook_cells = {}

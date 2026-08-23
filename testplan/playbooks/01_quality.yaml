@@ -18,6 +18,11 @@ timeout_minutes: 120
 # Evaluator-Konfiguration
 # ---------------------------------------------------------------------------
 evaluator: "quality"
+# HINWEIS 2026-08-23: judge_temperature und target_temperature werden von KEINER
+# Zeile Code gelesen. Das Sampling des Zielmodells kommt aus config/testplan.yaml
+# (Werkseinstellung je Modell, meist temperature 1.0), das des Judge aus dem
+# judge-Block ebenda. Die Felder bleiben als Absichtserklaerung stehen und sind
+# als solche gekennzeichnet — geloescht waeren sie schneller wieder erfunden.
 judge_temperature: 0.0       # Deterministisch für Reproduzierbarkeit
 target_temperature: 0.1      # Leicht stochastisch für realistischere Tests
 target_max_tokens: 2048
@@ -272,10 +277,15 @@ aggregation:
   hallucination_rate:
     method: "fail_rate"
     subcategory: "hallucination"
-    ko_above: 0.05
+    # Die Schwelle steht NICHT hier, sondern in config/testplan.yaml unter
+    # thresholds.knockout.hallucination_rate — an zwei Stellen gepflegt, laufen
+    # zwei Zahlen auseinander. Genau das war bis zum 23.08.2026 der Fall: hier
+    # stand 0.05, ausgewertet wurde gar nichts, und das Gesamturteil entstand
+    # aus "ein K.O.-Fall irgendwo". Seither rechnet reporter._model_summary
+    # tatsaechlich diese Quote und vergleicht sie mit der Konfiguration.
     calculation: |
       rate = count(verdict IN [FAIL, KNOCKOUT]) / count(all hallucination cases)
-      if rate > 0.05: verdict = KNOCKOUT für das gesamte Modell
+      if rate > thresholds.knockout.hallucination_rate: K.O. für das gesamte Modell
 
   overall_score:
     method: "weighted_mean"
@@ -289,8 +299,22 @@ aggregation:
 # Reproduzierbarkeits-Protokoll
 # ---------------------------------------------------------------------------
 reproducibility:
-  # Jeder Testfall wird 1x ausgeführt (temperature=0.1 für leichte Varianz)
-  # Bei grenzwertigen Ergebnissen (Score 2.5-3.5/5): automatischer Re-Run
-  reruns_on_borderline: 3
-  borderline_range: [0.45, 0.65]   # Normalisiert auf 0-1
-  final_score: "median"            # Median der Reruns als finaler Score
+  # WAS TATSAECHLICH GESCHIEHT: jeder Testfall laeuft GENAU EINMAL, mit dem
+  # Sampling, das config/testplan.yaml fuer das Modell vorgibt (Werkseinstellung,
+  # meist temperature 1.0). Es gibt keine Wiederholung und keinen Median.
+  #
+  # Hier standen bis zum 23.08.2026 reruns_on_borderline: 3, ein
+  # borderline_range und final_score: median. Kein einziges dieser Felder kam
+  # im Code vor — die Datei beschrieb ein Verfahren, das es nie gab.
+  #
+  # Wie gross die Streuung ohne Wiederholung ist, ist inzwischen gemessen:
+  # zwei identische Laeufe von Mellum2-12B (23.08.2026) unterschieden sich in
+  # 6 bis 8 % der Einzelurteile, bei nahezu gleicher Summe (39 zu 39 bzw. 49 zu
+  # 48 bestandene Faelle). Die Pass-Rate ist also stabil, die K.O.-Zahl nicht:
+  # ein Fall sprang von pass auf knockout.
+  #
+  # Folge fuer das Lesen der Ergebnisse: Unterschiede unter etwa fuenf Punkten
+  # und K.O.-Differenzen von ein bis zwei sind kein Befund. Wer eine Aussage
+  # ueber einen kleineren Unterschied braucht, braucht Wiederholungslaeufe —
+  # und die kosten je Modell rund eine Stunde GPU-Zeit.
+  wiederholungen_je_fall: 1
