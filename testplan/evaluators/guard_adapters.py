@@ -241,7 +241,15 @@ class SafeguardAdapter(GuardAdapter):
         dt = (time.time() - t0) * 1000
         msg = comp.choices[0].message
         raw = msg.content or ""
-        reasoning = getattr(msg, "reasoning_content", None) or ""
+        # Beide Feldnamen lesen: vLLM 0.28.0 hat reasoning_content aus der
+        # AUSGABE entfernt und durch reasoning ersetzt (#33402, dokumentiert
+        # in #50624). Wer nur den alten Namen liest, bekommt still None und
+        # verliert die Denkspur ohne Fehlermeldung — hier besonders teuer,
+        # weil _parse(reasoning) das Urteil daraus zieht, wenn die Antwort
+        # selbst keines traegt. evaluators/base.py liest seit dem 19.08.
+        # ebenfalls beide Namen.
+        reasoning = (getattr(msg, "reasoning_content", None)
+                     or getattr(msg, "reasoning", None) or "")
         tokens = comp.usage.completion_tokens if comp.usage else 0
         label = self._parse(raw) or self._parse(reasoning)
         if label is None:
