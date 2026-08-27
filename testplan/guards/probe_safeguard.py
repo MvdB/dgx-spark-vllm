@@ -98,7 +98,8 @@ def main():
         dt = time.time() - t0
         msg = resp["choices"][0]["message"]
         content = msg.get("content") or ""
-        reasoning = msg.get("reasoning_content") or ""
+        # vLLM 0.28.0: reasoning_content in der Ausgabe durch reasoning ersetzt.
+        reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
         parsed = parse(content) or parse(reasoning)
         got = parsed.get("violation") if parsed else None
         hit = "OK " if got == want else "MISS"
